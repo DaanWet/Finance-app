@@ -1,0 +1,104 @@
+<div class="page">
+  <div class="page-header">
+    <h1>Instellingen</h1>
+  </div>
+
+  <!-- Splitwise -->
+  <section class="settings-section card">
+    <h2>🤝 Splitwise koppeling</h2>
+    <div class="form-group">
+      <label>API Key</label>
+      <div class="input-row">
+        <input type="password" [(ngModel)]="splitwiseKey" placeholder="Splitwise API key">
+        <button class="btn-primary" (click)="saveSplitwiseKey()" [disabled]="!splitwiseKey || splitwiseConnecting()">
+          @if (splitwiseConnecting()) { Verbinden... } @else { Opslaan & Verbinden }
+        </button>
+      </div>
+      @if (splitwiseConnected()) {
+        <p class="success-msg">✅ Verbonden als {{ splitwiseUser() || 'gebruiker' }}</p>
+      }
+      <small class="text-muted">
+        Haal je API key op via <a href="https://secure.splitwise.com/apps" target="_blank" rel="noopener">splitwise.com/apps</a> → Maak een nieuwe app aan.
+      </small>
+    </div>
+  </section>
+
+  <!-- Auto-classificatie regels -->
+  <section class="settings-section card">
+    <h2>🔖 Auto-classificatie regels (voor CSV import)</h2>
+    <p class="section-desc text-muted">Als een transactie dit woord/patroon in de omschrijving bevat, wordt het automatisch geclassificeerd.</p>
+
+    <div class="rule-list">
+      @for (rule of rules(); track rule.id) {
+        <div class="rule-row">
+          <code class="rule-pattern">{{ rule.pattern }}</code>
+          <span class="badge" [class]="'badge-' + rule.type">{{ typeLabel(rule.type) }}</span>
+          @if (rule.organization_name) {
+            <span class="text-muted">→ {{ rule.organization_name }}</span>
+          }
+          @if (rule.category_name) {
+            <span class="text-muted">| {{ rule.category_name }}</span>
+          }
+          <button class="btn-icon" (click)="deleteRule(rule.id)">🗑️</button>
+        </div>
+      }
+    </div>
+
+    <div class="add-rule">
+      <input [(ngModel)]="newRule.pattern" placeholder="Patroon (bv. CHIRO, JEUGDHUIS, LIDGELD)">
+      <select [(ngModel)]="newRule.type">
+        <option value="personal">Persoonlijk</option>
+        <option value="reimbursable">Terugbetaalbaar</option>
+        <option value="income">Inkomst</option>
+      </select>
+      @if (newRule.type === 'reimbursable') {
+        <select [(ngModel)]="newRule.organization_id">
+          <option [ngValue]="null">Geen org</option>
+          @for (org of organizations(); track org.id) {
+            <option [ngValue]="org.id">{{ org.name }}</option>
+          }
+        </select>
+      }
+      <button class="btn-primary" (click)="addRule()" [disabled]="!newRule.pattern">+ Toevoegen</button>
+    </div>
+  </section>
+
+  <!-- Organisations -->
+  <section class="settings-section card">
+    <h2>🏢 Organisaties</h2>
+    <div class="item-list">
+      @for (org of organizations(); track org.id) {
+        <div class="item-row">
+          <span class="item-color" [style.background]="org.color"></span>
+          <span>{{ org.name }}</span>
+          <button class="btn-icon" (click)="deleteOrg(org.id)">🗑️</button>
+        </div>
+      }
+    </div>
+    <div class="add-row">
+      <input [(ngModel)]="newOrg.name" placeholder="Naam (bv. Scouts)">
+      <input type="color" [(ngModel)]="newOrg.color" style="width:50px;padding:0.25rem">
+      <button class="btn-primary" (click)="addOrg()" [disabled]="!newOrg.name">+ Toevoegen</button>
+    </div>
+  </section>
+
+  <!-- Categories -->
+  <section class="settings-section card">
+    <h2>🏷️ Categorieën</h2>
+    <div class="item-list">
+      @for (cat of categories(); track cat.id) {
+        <div class="item-row">
+          <span class="item-color" [style.background]="cat.color"></span>
+          <span>{{ cat.icon }} {{ cat.name }}</span>
+          <button class="btn-icon" (click)="deleteCat(cat.id)">🗑️</button>
+        </div>
+      }
+    </div>
+    <div class="add-row">
+      <input [(ngModel)]="newCat.icon" placeholder="Emoji 🍔" style="max-width:80px">
+      <input [(ngModel)]="newCat.name" placeholder="Naam (bv. Sport)">
+      <input type="color" [(ngModel)]="newCat.color" style="width:50px;padding:0.25rem">
+      <button class="btn-primary" (click)="addCat()" [disabled]="!newCat.name">+ Toevoegen</button>
+    </div>
+  </section>
+</div>

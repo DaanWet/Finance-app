@@ -1,0 +1,191 @@
+<div class="page">
+  <div class="page-header">
+    <h1>Transacties</h1>
+    <div class="header-actions">
+      <label class="btn-import">
+        @if (importLoading()) { ⏳ Importeren... } @else { 📥 ING CSV Importeren }
+        <input type="file" accept=".csv" (change)="onFileSelected($event)" [disabled]="importLoading()" style="display:none">
+      </label>
+      <button class="btn-primary" (click)="openAdd()">+ Nieuw</button>
+    </div>
+  </div>
+
+  @if (importResult(); as result) {
+    <div class="import-result">
+      ✅ Import klaar: <strong>{{ result.imported }} nieuw</strong>, {{ result.skipped }} overgeslagen (duplicaat)
+      <button class="btn-icon" (click)="importResult.set(null)">✕</button>
+    </div>
+  }
+
+  <!-- Filters -->
+  <div class="filters card">
+    <input placeholder="Zoeken..." [(ngModel)]="filterSearch" (input)="loadTransactions()">
+    <select [(ngModel)]="filterType" (change)="loadTransactions()">
+      <option value="">Alle types</option>
+      <option value="personal">Persoonlijk</option>
+      <option value="reimbursable">Terugbetaalbaar</option>
+      <option value="income">Inkomst</option>
+    </select>
+    <select [(ngModel)]="filterCategory" (change)="loadTransactions()">
+      <option value="">Alle categorieën</option>
+      @for (cat of categories(); track cat.id) {
+        <option [value]="cat.id">{{ cat.icon }} {{ cat.name }}</option>
+      }
+    </select>
+    <select [(ngModel)]="filterOrg" (change)="loadTransactions()">
+      <option value="">Alle organisaties</option>
+      @for (org of organizations(); track org.id) {
+        <option [value]="org.id">{{ org.name }}</option>
+      }
+    </select>
+    <input type="date" [(ngModel)]="filterDateFrom" (change)="loadTransactions()" title="Van datum">
+    <input type="date" [(ngModel)]="filterDateTo" (change)="loadTransactions()" title="Tot datum">
+  </div>
+
+  @if (loading()) {
+    <div class="loading">Laden...</div>
+  } @else if (transactions().length === 0) {
+    <div class="empty-state">
+      <div class="empty-icon">💳</div>
+      <p>Geen transacties gevonden</p>
+      <button class="btn-primary" (click)="openAdd()">Eerste transactie toevoegen</button>
+    </div>
+  } @else {
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>Beschrijving</th>
+            <th>Type</th>
+            <th>Categorie</th>
+            <th>Organisatie</th>
+            <th style="text-align:right">Bedrag</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (tx of transactions(); track tx.id) {
+            <tr>
+              <td class="text-muted">{{ formatDate(tx.date) }}</td>
+              <td>
+                {{ tx.description }}
+                @if (tx.splitwise_expense_id) {
+                  <span class="badge badge-splitwise">🤝 Splitwise</span>
+                }
+                @if (tx.ing_transaction_id) {
+                  <span class="badge" style="background:rgba(59,130,246,0.1);color:#60a5fa;margin-left:4px">🏦 ING</span>
+                }
+              </td>
+              <td>
+                <span class="badge" [class]="'badge-' + tx.type">{{ typeBadge(tx.type) }}</span>
+                @if (tx.type === 'reimbursable' && tx.reimbursed_at) {
+                  <span class="badge badge-income" style="margin-left:4px">✓ Ontvangen</span>
+                }
+              </td>
+              <td>
+                @if (tx.category_name) {
+                  <span [style.color]="tx.category_color">{{ tx.category_icon }} {{ tx.category_name }}</span>
+                } @else {
+                  <span class="text-muted">—</span>
+                }
+              </td>
+              <td>
+                @if (tx.organization_name) {
+                  <span class="org-badge" [style.border-color]="tx.organization_color" [style.color]="tx.organization_color">
+                    {{ tx.organization_name }}
+                  </span>
+                } @else {
+                  <span class="text-muted">—</span>
+                }
+              </td>
+              <td style="text-align:right" [class]="tx.amount >= 0 ? 'amount-positive' : 'amount-negative'">
+                {{ tx.amount >= 0 ? '+' : '-' }}{{ formatEur(tx.amount) }}
+              </td>
+              <td class="actions">
+                <button class="btn-icon" (click)="openEdit(tx)" title="Bewerken">✏️</button>
+                <button class="btn-icon" (click)="delete(tx)" title="Verwijderen">🗑️</button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>
+
+<!-- Modal -->
+@if (showModal()) {
+  <div class="modal-overlay" (click)="closeModal()">
+    <div class="modal" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>{{ editingTx() ? 'Transactie bewerken' : 'Nieuwe transactie' }}</h2>
+        <button class="btn-icon" (click)="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Type selector -->
+        <div class="form-group">
+          <label>Type</label>
+          <div class="type-selector">
+            <button class="type-btn" [class]="form.type === 'personal' ? 'active-personal' : ''" (click)="form.type = 'personal'">💳 Persoonlijk</button>
+            <button class="type-btn" [class]="form.type === 'reimbursable' ? 'active-reimbursable' : ''" (click)="form.type = 'reimbursable'">↩️ Terugbetaalbaar</button>
+            <button class="type-btn" [class]="form.type === 'income' ? 'active-income' : ''" (click)="form.type = 'income'">💚 Inkomst</button>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Beschrijving *</label>
+            <input [(ngModel)]="form.description" placeholder="bv. Restaurant De Kroon">
+          </div>
+          <div class="form-group">
+            <label>Bedrag (€) *</label>
+            <input type="number" step="0.01" [(ngModel)]="form.amount" placeholder="0.00">
+            @if (form.type === 'personal' || form.type === 'reimbursable') {
+              <small class="field-hint">Negatief voor uitgave (bv. -45.00)</small>
+            }
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="form-group">
+            <label>Datum *</label>
+            <input type="date" [(ngModel)]="form.date">
+          </div>
+          <div class="form-group">
+            <label>Categorie</label>
+            <select [(ngModel)]="form.category_id">
+              <option [ngValue]="null">Geen categorie</option>
+              @for (cat of categories(); track cat.id) {
+                <option [ngValue]="cat.id">{{ cat.icon }} {{ cat.name }}</option>
+              }
+            </select>
+          </div>
+        </div>
+
+        @if (form.type === 'reimbursable') {
+          <div class="form-group">
+            <label>Organisatie (terugbetaler)</label>
+            <select [(ngModel)]="form.organization_id">
+              <option [ngValue]="null">Selecteer organisatie</option>
+              @for (org of organizations(); track org.id) {
+                <option [ngValue]="org.id">{{ org.name }}</option>
+              }
+            </select>
+          </div>
+        }
+
+        <div class="form-group">
+          <label>Notities</label>
+          <textarea rows="2" [(ngModel)]="form.notes" placeholder="Optionele notitie..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" (click)="closeModal()">Annuleren</button>
+        <button class="btn-primary" (click)="save()" [disabled]="!form.description || form.amount === undefined || !form.date">
+          {{ editingTx() ? 'Opslaan' : 'Toevoegen' }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

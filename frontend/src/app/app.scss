@@ -1,0 +1,63 @@
+.app-layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 1.25rem 1rem;
+    border-bottom: 1px solid var(--border);
+
+    .logo { font-size: 1.5rem; }
+    .logo-text { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+  }
+
+  .nav-list {
+    list-style: none;
+    padding: 0.75rem 0.5rem;
+    flex: 1;
+
+    li { margin-bottom: 0.25rem; }
+  }
+
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.625rem 0.75rem;
+    border-radius: var(--radius);
+    color: var(--text-muted);
+    transition: all 0.15s;
+
+    .nav-icon { font-size: 1rem; width: 1.25rem; text-align: center; }
+    .nav-label { font-size: 0.875rem; font-weight: 500; }
+
+    &:hover {
+      background: var(--bg-hover);
+      color: var(--text);
+    }
+
+    &.active {
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+    }
+  }
+}
+
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg);
+}

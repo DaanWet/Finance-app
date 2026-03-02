@@ -1,0 +1,74 @@
+<div class="page">
+  <div class="page-header">
+    <h1>Splitwise</h1>
+    <button class="btn-secondary" (click)="refresh()" [disabled]="loading()">🔄 Vernieuwen</button>
+  </div>
+
+  @if (loading()) {
+    <div class="loading">Laden...</div>
+  } @else if (!configured()) {
+    <div class="not-configured card">
+      <div class="empty-icon">🤝</div>
+      <h3>Splitwise niet gekoppeld</h3>
+      <p>{{ error() }}</p>
+      <a routerLink="/settings" class="btn-primary">⚙️ Naar instellingen</a>
+    </div>
+  } @else {
+    <!-- Balances summary -->
+    @if (balances().length > 0) {
+      <div class="balances-section">
+        <h2 class="section-title">Saldo per persoon</h2>
+        <div class="balances-grid">
+          @for (b of balances(); track b.id) {
+            <div class="card balance-card" [class.positive]="parseFloat(b.balance) > 0" [class.negative]="parseFloat(b.balance) < 0">
+              <div class="balance-name">{{ b.name }}</div>
+              <div class="balance-amount" [class.text-success]="parseFloat(b.balance) > 0" [class.text-danger]="parseFloat(b.balance) < 0">
+                @if (parseFloat(b.balance) > 0) {
+                  Verschuldigd jou {{ formatEur(parseFloat(b.balance)) }}
+                } @else {
+                  Jij verschuldigd {{ formatEur(parseFloat(b.balance)) }}
+                }
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- Expenses list -->
+    <h2 class="section-title">Recente expenses (afgelopen 3 maanden)</h2>
+    @if (expenses().length === 0) {
+      <div class="empty-state">
+        <div class="empty-icon">🤝</div>
+        <p>Geen Splitwise expenses gevonden</p>
+      </div>
+    } @else {
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Beschrijving</th>
+              <th style="text-align:right">Totaal</th>
+              <th style="text-align:right">Jouw aandeel</th>
+              <th style="text-align:right">Jij betaalde</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (e of expenses(); track e.id) {
+              <tr>
+                <td class="text-muted">{{ formatDate(e.date) }}</td>
+                <td>{{ e.description }}</td>
+                <td style="text-align:right">{{ formatEur(e.total_cost) }}</td>
+                <td style="text-align:right" class="amount-negative">{{ formatEur(e.my_owed_share) }}</td>
+                <td style="text-align:right" [class.text-success]="e.my_paid_share > 0">
+                  {{ e.my_paid_share > 0 ? formatEur(e.my_paid_share) : '—' }}
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  }
+</div>

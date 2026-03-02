@@ -1,0 +1,106 @@
+<div class="page">
+  <div class="page-header">
+    <h1>Terugbetalingen</h1>
+    @if (totalOutstanding() > 0) {
+      <div class="total-badge">Openstaand: {{ formatEur(totalOutstanding()) }}</div>
+    }
+  </div>
+
+  @if (loading()) {
+    <div class="loading">Laden...</div>
+  } @else {
+    <!-- Outstanding -->
+    <h2 class="section-title">⏳ Openstaand</h2>
+    @if (outstanding().length === 0) {
+      <div class="empty-state">
+        <div class="empty-icon">🎉</div>
+        <p>Geen openstaande terugbetalingen!</p>
+      </div>
+    } @else {
+      @for (group of outstanding(); track group.organization_id) {
+        <div class="org-group card">
+          <div class="org-header">
+            <div class="org-info">
+              <span class="org-dot" [style.background]="group.organization_color"></span>
+              <span class="org-name">{{ group.organization_name }}</span>
+              <span class="org-count text-muted">{{ group.count }} uitgave(n)</span>
+            </div>
+            <span class="org-total" [style.color]="group.organization_color">{{ formatEur(group.total) }}</span>
+          </div>
+
+          <div class="tx-list">
+            @for (tx of group.transactions; track tx.id) {
+              <div class="tx-row" [class.confirming]="confirmId() === tx.id">
+                <div class="tx-info">
+                  <span class="tx-date text-muted">{{ formatDate(tx.date) }}</span>
+                  <span class="tx-desc">{{ tx.description }}</span>
+                  @if (tx.notes) {
+                    <span class="tx-note text-muted">{{ tx.notes }}</span>
+                  }
+                </div>
+                <div class="tx-right">
+                  <span class="tx-amount">{{ formatEur(tx.amount) }}</span>
+                  @if (confirmId() !== tx.id) {
+                    <button class="btn-success btn-sm" (click)="openConfirm(tx)">✓ Ontvangen</button>
+                  }
+                </div>
+              </div>
+
+              @if (confirmId() === tx.id) {
+                <div class="confirm-row">
+                  <input [(ngModel)]="confirmNote" placeholder="Optionele notitie (bv. 'Ontvangen via overschrijving')" class="confirm-note">
+                  <div class="confirm-actions">
+                    <button class="btn-secondary btn-sm" (click)="cancelConfirm()">Annuleren</button>
+                    <button class="btn-success btn-sm" (click)="markReceived()" [disabled]="markingId() === tx.id">
+                      @if (markingId() === tx.id) { Bezig... } @else { ✓ Bevestig ontvangen }
+                    </button>
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        </div>
+      }
+    }
+
+    <!-- Received (last 3 months) -->
+    <div class="section-header">
+      <h2 class="section-title">✅ Ontvangen (afgelopen 3 maanden)</h2>
+      <button class="btn-secondary btn-sm" (click)="showReceivedExpanded.set(!showReceivedExpanded())">
+        {{ showReceivedExpanded() ? 'Verbergen' : 'Tonen' }}
+      </button>
+    </div>
+
+    @if (showReceivedExpanded()) {
+      @if (received().length === 0) {
+        <p class="text-muted" style="padding: 1rem 0">Geen ontvangen terugbetalingen de afgelopen 3 maanden.</p>
+      } @else {
+        @for (group of received(); track group.organization_id) {
+          <div class="org-group card received-group">
+            <div class="org-header">
+              <div class="org-info">
+                <span class="org-dot" [style.background]="group.organization_color"></span>
+                <span class="org-name">{{ group.organization_name }}</span>
+              </div>
+              <span class="org-total text-success">{{ formatEur(group.total) }}</span>
+            </div>
+            <div class="tx-list">
+              @for (tx of group.transactions; track tx.id) {
+                <div class="tx-row">
+                  <div class="tx-info">
+                    <span class="tx-date text-muted">{{ formatDate(tx.date) }}</span>
+                    <span class="tx-desc">{{ tx.description }}</span>
+                    @if (tx.reimbursed_at) {
+                      <span class="tx-note text-success">✓ Ontvangen op {{ formatDate(tx.reimbursed_at) }}</span>
+                    }
+                  </div>
+                  <span class="tx-amount text-muted">{{ formatEur(tx.amount) }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      }
+    }
+  }
+</div>

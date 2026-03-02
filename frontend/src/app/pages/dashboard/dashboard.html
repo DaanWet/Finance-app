@@ -1,0 +1,100 @@
+<div class="page">
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <div class="period-selector">
+      <button [class.active]="period() === 'month'" (click)="setPeriod('month')">Deze maand</button>
+      <button [class.active]="period() === 'last_month'" (click)="setPeriod('last_month')">Vorige maand</button>
+      <button [class.active]="period() === 'year'" (click)="setPeriod('year')">Dit jaar</button>
+    </div>
+  </div>
+
+  @if (loading()) {
+    <div class="loading">Laden...</div>
+  } @else if (error()) {
+    <div class="error-banner">
+      ⚠️ {{ error() }}
+      <br><small>Start de backend met: <code>cd backend && npm run dev</code></small>
+    </div>
+  } @else if (summary()) {
+    <!-- Summary Cards -->
+    <div class="summary-grid">
+      <div class="card summary-card">
+        <div class="card-label">Persoonlijke uitgaven</div>
+        <div class="card-amount amount-negative">{{ formatEur(summary()!.personalTotal) }}</div>
+        <div class="card-sub text-muted">Enkel jouw eigen kosten</div>
+      </div>
+
+      <div class="card summary-card clickable" routerLink="/reimbursements">
+        <div class="card-label">Openstaande terugbetalingen</div>
+        <div class="card-amount text-warning">{{ formatEur(summary()!.reimbursableOutstanding) }}</div>
+        <div class="card-sub text-muted">{{ summary()!.reimbursableCount }} uitgave(n) nog niet ontvangen</div>
+      </div>
+
+      @if (splitwiseTotal() > 0) {
+        <div class="card summary-card clickable" routerLink="/splitwise">
+          <div class="card-label">Splitwise saldo</div>
+          <div class="card-amount text-success">{{ formatEur(splitwiseTotal()) }}</div>
+          <div class="card-sub text-muted">{{ balances().length }} persoon/personen verschuldigd</div>
+        </div>
+      } @else {
+        <div class="card summary-card">
+          <div class="card-label">Inkomsten</div>
+          <div class="card-amount text-success">{{ formatEur(summary()!.incomeTotal) }}</div>
+          <div class="card-sub text-muted">Deze periode</div>
+        </div>
+      }
+    </div>
+
+    <!-- Charts row -->
+    <div class="charts-row">
+      <!-- Category breakdown -->
+      <div class="card">
+        <h3 class="chart-title">Uitgaven per categorie</h3>
+        @if (summary()!.byCategory.length === 0) {
+          <div class="empty-state">
+            <div class="empty-icon">📊</div>
+            <p>Nog geen uitgaven deze periode</p>
+          </div>
+        } @else {
+          <div class="category-list">
+            @for (cat of summary()!.byCategory; track cat.name) {
+              <div class="category-row">
+                <div class="cat-info">
+                  <span class="cat-dot" [style.background]="cat.color"></span>
+                  <span>{{ cat.icon ?? '' }} {{ cat.name }}</span>
+                </div>
+                <span class="cat-amount">{{ formatEur(cat.total) }}</span>
+              </div>
+              <div class="cat-bar-wrap">
+                <div class="cat-bar" [style.width.%]="(cat.total / summary()!.personalTotal) * 100" [style.background]="cat.color"></div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- Monthly trend -->
+      <div class="card">
+        <h3 class="chart-title">Maandelijkse trend</h3>
+        @if (summary()!.monthlyTrend.length === 0) {
+          <div class="empty-state">
+            <div class="empty-icon">📈</div>
+            <p>Nog geen historische data</p>
+          </div>
+        } @else {
+          <div class="bar-chart">
+            @for (m of summary()!.monthlyTrend; track m.month) {
+              <div class="bar-col">
+                <div class="bar-label-top">{{ formatEur(m.total) }}</div>
+                <div class="bar-wrap">
+                  <div class="bar" [style.height.%]="(m.total / maxTrend(summary()!.monthlyTrend)) * 100"></div>
+                </div>
+                <div class="bar-label">{{ monthLabel(m.month) }}</div>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  }
+</div>
