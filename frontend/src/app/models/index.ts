@@ -14,8 +14,8 @@ export interface WorkExpense extends Transaction {
 }
 
 export interface ExpensesPageData {
-  month: string;
   transactions: WorkExpense[];
+  reimbursed: WorkExpense[];
   gmail_connected: boolean;
   work_org_configured?: boolean;
 }
@@ -132,4 +132,33 @@ export interface ImportResult {
   total: number;
   ai_analyzed?: boolean;
   transactions: Transaction[];
+}
+
+export interface ReimbursementLink {
+  id: number;
+  income_transaction_id: number;
+  expense_transaction_id: number;
+  amount: number;
+  created_at: string;
+  description?: string;
+  transaction_amount?: number;
+  date?: string;
+  organization_name?: string;
+}
+
+export interface IncomeCandidateTransaction {
+  id: number;
+  description: string;
+  amount: number;
+  date: string;
+  counterparty_name: string | null;
+  linked_total: number;
+}
+
+export interface ExpenseCandidateTransaction {
+  id: number;
+  description: string;
+  amount: number;
+  date: string;
+  organization_name: string | null;
 }

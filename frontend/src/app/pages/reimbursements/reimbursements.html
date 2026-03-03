@@ -10,10 +10,10 @@
     <div class="loading">Laden...</div>
   } @else {
     <!-- Outstanding -->
-    <h2 class="section-title">⏳ Openstaand</h2>
+    <h2 class="section-title">Openstaand</h2>
     @if (outstanding().length === 0) {
       <div class="empty-state">
-        <div class="empty-icon">🎉</div>
+        <div class="empty-icon">&#x1F389;</div>
         <p>Geen openstaande terugbetalingen!</p>
       </div>
     } @else {
@@ -30,7 +30,7 @@
 
           <div class="tx-list">
             @for (tx of group.transactions; track tx.id) {
-              <div class="tx-row" [class.confirming]="confirmId() === tx.id">
+              <div class="tx-row" [class.confirming]="confirmId() === tx.id || linkingExpenseId() === tx.id">
                 <div class="tx-info">
                   <span class="tx-date text-muted">{{ formatDate(tx.date) }}</span>
                   <span class="tx-desc">{{ tx.description }}</span>
@@ -40,19 +40,49 @@
                 </div>
                 <div class="tx-right">
                   <span class="tx-amount">{{ formatEur(tx.amount) }}</span>
-                  @if (confirmId() !== tx.id) {
-                    <button class="btn-success btn-sm" (click)="openConfirm(tx)">✓ Ontvangen</button>
+                  @if (confirmId() !== tx.id && linkingExpenseId() !== tx.id) {
+                    <button class="btn-link btn-sm" (click)="openLinkToIncome(tx)" title="Koppel aan inkomst">&#x21A9;</button>
+                    <button class="btn-success btn-sm" (click)="openConfirm(tx)">&#x2713; Ontvangen</button>
                   }
                 </div>
               </div>
 
+              <!-- Confirm mark-received -->
               @if (confirmId() === tx.id) {
                 <div class="confirm-row">
                   <input [(ngModel)]="confirmNote" placeholder="Optionele notitie (bv. 'Ontvangen via overschrijving')" class="confirm-note">
                   <div class="confirm-actions">
                     <button class="btn-secondary btn-sm" (click)="cancelConfirm()">Annuleren</button>
                     <button class="btn-success btn-sm" (click)="markReceived()" [disabled]="markingId() === tx.id">
-                      @if (markingId() === tx.id) { Bezig... } @else { ✓ Bevestig ontvangen }
+                      @if (markingId() === tx.id) { Bezig... } @else { &#x2713; Bevestig ontvangen }
+                    </button>
+                  </div>
+                </div>
+              }
+
+              <!-- Link to income -->
+              @if (linkingExpenseId() === tx.id) {
+                <div class="link-row">
+                  <div class="link-form">
+                    <label class="link-label">Koppel aan inkomst:</label>
+                    <select class="link-select" [ngModel]="selectedIncomeId()" (ngModelChange)="selectedIncomeId.set($event)">
+                      <option [ngValue]="null">-- Selecteer inkomst --</option>
+                      @for (inc of incomeCandidates(); track inc.id) {
+                        <option [ngValue]="inc.id">
+                          {{ formatDate(inc.date) }} — {{ inc.description }} — {{ formatEur(inc.amount) }}
+                          @if (inc.linked_total > 0) { (reeds {{ formatEur(inc.linked_total) }} gekoppeld) }
+                        </option>
+                      }
+                    </select>
+                    <div class="link-amount-row">
+                      <label>Bedrag:</label>
+                      <input type="number" step="0.01" [ngModel]="linkingAmount()" (ngModelChange)="linkingAmount.set($event)" class="link-amount-input">
+                    </div>
+                  </div>
+                  <div class="confirm-actions">
+                    <button class="btn-secondary btn-sm" (click)="cancelLink()">Annuleren</button>
+                    <button class="btn-primary btn-sm" (click)="confirmLink()" [disabled]="!selectedIncomeId() || linkSaving()">
+                      @if (linkSaving()) { Bezig... } @else { &#x21A9; Koppelen }
                     </button>
                   </div>
                 </div>
@@ -65,7 +95,7 @@
 
     <!-- Received -->
     <div class="section-header">
-      <h2 class="section-title">✅ Ontvangen</h2>
+      <h2 class="section-title">Ontvangen</h2>
       <div class="section-controls">
         <div class="period-selector">
           <button [class.active]="receivedPeriod() === 3" (click)="setReceivedPeriod(3)">3m</button>
@@ -99,11 +129,36 @@
                     <span class="tx-date text-muted">{{ formatDate(tx.date) }}</span>
                     <span class="tx-desc">{{ tx.description }}</span>
                     @if (tx.reimbursed_at) {
-                      <span class="tx-note text-success">✓ Ontvangen op {{ formatDate(tx.reimbursed_at) }}</span>
+                      <span class="tx-note text-success">
+                        &#x2713; Ontvangen op {{ formatDate(tx.reimbursed_at) }}
+                        @if (tx.reimbursed_note && tx.reimbursed_note !== 'Terugbetaling') {
+                          — {{ tx.reimbursed_note }}
+                        }
+                      </span>
                     }
+                    <!-- Show link detail toggle -->
+                    <button class="btn-link-detail" (click)="toggleLinkDetail(tx.id)">
+                      {{ expandedLinkId() === tx.id ? 'Verberg koppeling' : 'Toon koppeling' }}
+                    </button>
                   </div>
                   <span class="tx-amount text-muted">{{ formatEur(tx.amount) }}</span>
                 </div>
+                @if (expandedLinkId() === tx.id) {
+                  <div class="link-detail">
+                    @if (getLinksForTx(tx.id).length === 0) {
+                      <span class="text-muted">Geen koppeling (handmatig gemarkeerd)</span>
+                    } @else {
+                      @for (link of getLinksForTx(tx.id); track link.id) {
+                        <div class="link-detail-row">
+                          <span class="link-detail-info">
+                            Gekoppeld aan: {{ link.description }} ({{ formatDate(link.date!) }}) — {{ formatEur(link.amount) }}
+                          </span>
+                          <button class="btn-danger btn-sm" (click)="unlinkExpense(link.income_transaction_id, tx.id)">Ontkoppelen</button>
+                        </div>
+                      }
+                    }
+                  </div>
+                }
               }
             </div>
           </div>

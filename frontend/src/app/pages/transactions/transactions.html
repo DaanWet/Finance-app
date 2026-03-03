@@ -285,118 +285,232 @@
 <!-- Modal -->
 @if (showModal()) {
   <div class="modal-overlay" (click)="closeModal()">
-    <div class="modal" (click)="$event.stopPropagation()">
+    <div class="modal" [class.modal-wide]="form.type === 'reimbursable'" (click)="$event.stopPropagation()">
       <div class="modal-header">
         <h2>{{ editingTx() ? 'Transactie bewerken' : 'Nieuwe transactie' }}</h2>
         <button class="btn-icon" (click)="closeModal()">✕</button>
       </div>
       <div class="modal-body">
-        <!-- Type selector -->
-        <div class="form-group">
-          <label>Type</label>
-          <div class="type-selector">
-            <button class="type-btn" [class]="form.type === 'personal' ? 'active-personal' : ''" (click)="form.type = 'personal'; form.organization_id = null">💳 Persoonlijk</button>
-            <button class="type-btn" [class]="form.type === 'reimbursable' ? 'active-reimbursable' : ''" (click)="form.type = 'reimbursable'">↩️ Terugbetaalbaar</button>
-            <button class="type-btn" [class]="form.type === 'income' ? 'active-income' : ''" (click)="form.type = 'income'; form.organization_id = null">💚 Inkomst</button>
-            <button class="type-btn" [class]="form.type === 'savings' ? 'active-savings' : ''" (click)="form.type = 'savings'; form.organization_id = null">🏦 Sparen</button>
+        <div class="form-column-main">
+          <!-- Type selector -->
+          <div class="form-group">
+            <label>Type</label>
+            <div class="type-selector">
+              <button class="type-btn" [class]="form.type === 'personal' ? 'active-personal' : ''" (click)="form.type = 'personal'; form.organization_id = null">💳 Persoonlijk</button>
+              <button class="type-btn" [class]="form.type === 'reimbursable' ? 'active-reimbursable' : ''" (click)="form.type = 'reimbursable'">↩️ Terugbetaalbaar</button>
+              <button class="type-btn" [class]="form.type === 'income' ? 'active-income' : ''" (click)="form.type = 'income'">💚 Inkomst</button>
+              <button class="type-btn" [class]="form.type === 'savings' ? 'active-savings' : ''" (click)="form.type = 'savings'; form.organization_id = null">🏦 Sparen</button>
+            </div>
           </div>
-        </div>
 
-        <div class="grid-2">
-          <div class="form-group">
-            <label>Beschrijving *</label>
-            <input [(ngModel)]="form.description" placeholder="bv. Restaurant De Kroon">
-          </div>
-          <div class="form-group">
-            <label>Bedrag (€) *</label>
-            <input type="number" step="0.01" [(ngModel)]="form.amount" placeholder="0.00">
-            @if (form.type === 'personal' || form.type === 'reimbursable') {
-              <small class="field-hint">Negatief voor uitgave (bv. -45.00)</small>
-            }
-          </div>
-        </div>
-
-        <div class="grid-2">
-          <div class="form-group">
-            <label>Datum *</label>
-            <input type="date" [(ngModel)]="form.date">
-          </div>
-          <div class="form-group">
-            <label>Categorie</label>
-            <select [(ngModel)]="form.category_id">
-              <option [ngValue]="null">Geen categorie</option>
-              @for (cat of categories(); track cat.id) {
-                <option [ngValue]="cat.id">{{ cat.icon }} {{ cat.name }}</option>
-              }
-            </select>
-          </div>
-        </div>
-
-        @if (form.type === 'reimbursable') {
-          <div class="form-group">
-            <label>Organisatie (terugbetaler)</label>
-            <select [(ngModel)]="form.organization_id">
-              <option [ngValue]="null">Selecteer organisatie</option>
-              @for (org of organizations(); track org.id) {
-                <option [ngValue]="org.id">{{ org.name }}</option>
-              }
-            </select>
-          </div>
-        }
-
-        @if (editingTx()?.counterparty_name || editingTx()?.counterparty_account) {
-          <div class="form-group">
-            <label>Tegenpartij</label>
-            <div class="readonly-field">
-              @if (editingTx()?.counterparty_name) {
-                <div class="counterparty-name">{{ editingTx()!.counterparty_name }}</div>
-              }
-              @if (editingTx()?.counterparty_account) {
-                <div class="counterparty-iban">{{ editingTx()!.counterparty_account }}</div>
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Beschrijving *</label>
+              <input [(ngModel)]="form.description" placeholder="bv. Restaurant De Kroon">
+            </div>
+            <div class="form-group">
+              <label>Bedrag (€) *</label>
+              <input type="number" step="0.01" [(ngModel)]="form.amount" placeholder="0.00">
+              @if (form.type === 'personal' || form.type === 'reimbursable') {
+                <small class="field-hint">Negatief voor uitgave (bv. -45.00)</small>
               }
             </div>
           </div>
-        }
 
-        @if (editingTx()?.original_description && editingTx()!.original_description !== editingTx()!.description) {
+          <div class="grid-2">
+            <div class="form-group">
+              <label>Datum *</label>
+              <input type="date" [(ngModel)]="form.date">
+            </div>
+            <div class="form-group">
+              <label>Categorie</label>
+              <select [(ngModel)]="form.category_id">
+                <option [ngValue]="null">Geen categorie</option>
+                @for (cat of categories(); track cat.id) {
+                  <option [ngValue]="cat.id">{{ cat.icon }} {{ cat.name }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          @if (form.type === 'reimbursable' || form.type === 'income') {
+            <div class="form-group">
+              <label>{{ form.type === 'reimbursable' ? 'Organisatie (terugbetaler)' : 'Organisatie' }}</label>
+              <select [(ngModel)]="form.organization_id">
+                <option [ngValue]="null">Selecteer organisatie</option>
+                @for (org of organizations(); track org.id) {
+                  <option [ngValue]="org.id">{{ org.name }}</option>
+                }
+              </select>
+            </div>
+          }
+
+          @if (editingTx()?.counterparty_name || editingTx()?.counterparty_account) {
+            <div class="form-group">
+              <label>Tegenpartij</label>
+              <div class="readonly-field">
+                @if (editingTx()?.counterparty_name) {
+                  <div class="counterparty-name">{{ editingTx()!.counterparty_name }}</div>
+                }
+                @if (editingTx()?.counterparty_account) {
+                  <div class="counterparty-iban">{{ editingTx()!.counterparty_account }}</div>
+                }
+              </div>
+            </div>
+          }
+
+          @if (editingTx()?.original_description && editingTx()!.original_description !== editingTx()!.description) {
+            <div class="form-group">
+              <label>Originele mededeling</label>
+              <div class="readonly-field original-description">{{ editingTx()!.original_description }}</div>
+            </div>
+          }
+
           <div class="form-group">
-            <label>Originele mededeling</label>
-            <div class="readonly-field original-description">{{ editingTx()!.original_description }}</div>
+            <label>Notities</label>
+            <textarea rows="2" [(ngModel)]="form.notes" placeholder="Optionele notitie..."></textarea>
+          </div>
+
+          <!-- Reimbursement links for income transactions (inline, not in side column) -->
+          @if (editingTx() && form.type === 'income') {
+          <div class="form-group links-section">
+            <label>Gekoppelde terugbetalingen</label>
+            @if (editLinks().as_income.length > 0) {
+              <div class="links-list">
+                @for (link of editLinks().as_income; track link.id) {
+                  <div class="link-item">
+                    <div class="link-item-info">
+                      <span class="link-item-desc">{{ link.description }}</span>
+                      <span class="link-item-meta text-muted">{{ formatDate(link.date!) }} · {{ formatEur(link.transaction_amount!) }}</span>
+                    </div>
+                    <div class="link-item-right">
+                      <span class="link-item-amount">{{ formatEur(link.amount) }}</span>
+                      <button class="btn-icon btn-danger-sm" (click)="removeExpenseLink(link)" title="Ontkoppelen">&#x2715;</button>
+                    </div>
+                  </div>
+                }
+                <div class="links-summary">
+                  <span>Totaal gekoppeld: <strong>{{ formatEur(linkedTotal()) }}</strong></span>
+                  @if (form.amount) {
+                    <span class="text-muted">van {{ formatEur(form.amount) }} inkomst</span>
+                  }
+                </div>
+              </div>
+            } @else {
+              <span class="text-muted">Geen gekoppelde uitgaven</span>
+            }
+            @if (!showAddExpenseLink()) {
+              <button type="button" class="btn-secondary btn-sm" style="margin-top:0.5rem" (click)="openAddExpenseLink()">+ Koppel uitgave</button>
+            } @else {
+              <div class="add-link-form">
+                <select class="link-select" [ngModel]="linkingExpenseId()" (ngModelChange)="selectExpenseCandidate($event)">
+                  <option [ngValue]="null">-- Selecteer uitgave --</option>
+                  @for (exp of expenseCandidates(); track exp.id) {
+                    <option [ngValue]="exp.id">
+                      {{ formatDate(exp.date) }} — {{ exp.description }} — {{ formatEur(exp.amount) }}
+                      @if (exp.organization_name) { ({{ exp.organization_name }}) }
+                    </option>
+                  }
+                </select>
+                @if (linkingExpenseId()) {
+                  <div class="link-amount-row">
+                    <label>Bedrag:</label>
+                    <input type="number" step="0.01" [ngModel]="linkingAmount()" (ngModelChange)="linkingAmount.set($event)" class="link-amount-input">
+                  </div>
+                }
+                <div class="add-link-actions">
+                  <button class="btn-secondary btn-sm" (click)="showAddExpenseLink.set(false)">Annuleren</button>
+                  <button class="btn-primary btn-sm" (click)="confirmAddExpenseLink()" [disabled]="!linkingExpenseId() || linkSaving()">
+                    {{ linkSaving() ? 'Bezig...' : 'Koppelen' }}
+                  </button>
+                </div>
+              </div>
+            }
           </div>
         }
 
-        <div class="form-group">
-          <label>Notities</label>
-          <textarea rows="2" [(ngModel)]="form.notes" placeholder="Optionele notitie..."></textarea>
+        @if (splitwiseLoading() && form.type !== 'savings' && form.type !== 'income') {
+            <div class="form-group">
+              <label>🤝 Splitwise</label>
+              <span class="text-muted">Laden...</span>
+            </div>
+          } @else if (splitwiseExpenses().length > 0 && form.type !== 'savings' && form.type !== 'income') {
+            <div class="form-group">
+              <label>🤝 Splitwise onkost koppelen</label>
+              <input
+                type="text"
+                placeholder="Zoek op omschrijving of bedrag..."
+                [value]="splitwiseSearch()"
+                (input)="splitwiseSearch.set($any($event.target).value); splitwiseShowAll.set(false)"
+              >
+              <select [(ngModel)]="form.splitwise_expense_id" name="splitwise_expense_id" size="4" style="margin-top:4px">
+                <option [ngValue]="null">— Geen koppeling —</option>
+                @for (exp of filteredSplitwise(); track exp.id) {
+                  <option [ngValue]="exp.id.toString()">
+                    {{ exp.date.slice(0, 10) }} · {{ exp.description }} · €{{ exp.my_paid_share }}
+                  </option>
+                }
+              </select>
+              @if (!splitwiseShowAll() && !splitwiseSearch()) {
+                <button type="button" class="btn-link" (click)="splitwiseShowAll.set(true)">
+                  Alle onkosten tonen ({{ splitwiseExpenses().length }})
+                </button>
+              }
+            </div>
+          }
         </div>
 
-        @if (splitwiseLoading()) {
-          <div class="form-group">
-            <label>🤝 Splitwise</label>
-            <span class="text-muted">Laden...</span>
-          </div>
-        } @else if (splitwiseExpenses().length > 0) {
-          <div class="form-group">
-            <label>🤝 Splitwise onkost koppelen</label>
-            <input
-              type="text"
-              placeholder="Zoek op omschrijving of bedrag..."
-              [value]="splitwiseSearch()"
-              (input)="splitwiseSearch.set($any($event.target).value); splitwiseShowAll.set(false)"
-            >
-            <select [(ngModel)]="form.splitwise_expense_id" name="splitwise_expense_id" size="4" style="margin-top:4px">
-              <option [ngValue]="null">— Geen koppeling —</option>
-              @for (exp of filteredSplitwise(); track exp.id) {
-                <option [ngValue]="exp.id.toString()">
-                  {{ exp.date.slice(0, 10) }} · {{ exp.description }} · €{{ exp.my_paid_share }}
-                </option>
+        <!-- Side column: reimbursement links for reimbursable transactions -->
+        @if (editingTx() && form.type === 'reimbursable') {
+          <div class="form-column-side">
+            <div class="form-group links-section">
+              <label>Gekoppeld aan inkomst</label>
+              @if (editLinks().as_expense.length > 0) {
+                <div class="links-list">
+                  @for (link of editLinks().as_expense; track link.id) {
+                    <div class="link-item">
+                      <div class="link-item-info">
+                        <span class="link-item-desc">{{ link.description }}</span>
+                        <span class="link-item-meta text-muted">{{ formatDate(link.date!) }} · {{ formatEur(link.transaction_amount!) }}</span>
+                      </div>
+                      <div class="link-item-right">
+                        <span class="link-item-amount">{{ formatEur(link.amount) }}</span>
+                        <button class="btn-icon btn-danger-sm" (click)="removeExpenseLink(link)" title="Ontkoppelen">&#x2715;</button>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <span class="text-muted">Geen gekoppelde inkomst</span>
               }
-            </select>
-            @if (!splitwiseShowAll() && !splitwiseSearch()) {
-              <button type="button" class="btn-link" (click)="splitwiseShowAll.set(true)">
-                Alle onkosten tonen ({{ splitwiseExpenses().length }})
-              </button>
-            }
+              @if (!showAddIncomeLink()) {
+                <button type="button" class="btn-secondary btn-sm" style="margin-top:0.5rem" (click)="openAddIncomeLink()">+ Koppel aan inkomst</button>
+              } @else {
+                <div class="add-link-form">
+                  <select class="link-select" [ngModel]="selectedIncomeId()" (ngModelChange)="selectedIncomeId.set($event)">
+                    <option [ngValue]="null">-- Selecteer inkomst --</option>
+                    @for (inc of incomeCandidates(); track inc.id) {
+                      <option [ngValue]="inc.id">
+                        {{ formatDate(inc.date) }} — {{ inc.description }} — {{ formatEur(inc.amount) }}
+                        @if (inc.linked_total > 0) { (reeds {{ formatEur(inc.linked_total) }} gekoppeld) }
+                      </option>
+                    }
+                  </select>
+                  @if (selectedIncomeId()) {
+                    <div class="link-amount-row">
+                      <label>Bedrag:</label>
+                      <input type="number" step="0.01" [ngModel]="linkingIncomeAmount()" (ngModelChange)="linkingIncomeAmount.set($event)" class="link-amount-input">
+                    </div>
+                  }
+                  <div class="add-link-actions">
+                    <button class="btn-secondary btn-sm" (click)="showAddIncomeLink.set(false)">Annuleren</button>
+                    <button class="btn-primary btn-sm" (click)="confirmAddIncomeLink()" [disabled]="!selectedIncomeId() || linkSaving()">
+                      {{ linkSaving() ? 'Bezig...' : 'Koppelen' }}
+                    </button>
+                  </div>
+                </div>
+              }
+            </div>
           </div>
         }
       </div>

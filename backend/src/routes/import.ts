@@ -359,6 +359,11 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
         UPDATE transactions SET reimbursed_note = 'Terugbetaling'
         WHERE id = ? AND reimbursed_note IS NULL
       `).run(repaymentTx.id);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
+        VALUES (?, ?, ?)
+      `).run(repaymentTx.id, advanceTx.id, Math.abs(advanceTx.amount));
     }
   }
 
@@ -391,6 +396,11 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
         UPDATE transactions SET reimbursed_note = 'Terugbetaling'
         WHERE id = ? AND reimbursed_note IS NULL
       `).run(tx.id);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
+        VALUES (?, ?, ?)
+      `).run(tx.id, match.id, Math.abs(match.amount));
     }
   }
 

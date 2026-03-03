@@ -7,6 +7,7 @@ import {
 } from '../queries/transactions';
 import { analyzeTransactions, TransactionAnalysisInput } from '../services/aiAnalysis';
 import { fetchSplitwiseExpenses } from './import';
+import { cleanupLinksForDeletedTransaction } from '../queries/reimbursementLinks';
 
 const router = Router();
 
@@ -69,6 +70,7 @@ router.post('/bulk-delete', (req: Request, res: Response) => {
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'ids array is required' });
   }
+  for (const id of ids) cleanupLinksForDeletedTransaction(db, Number(id));
   const deleted = deleteTransactions(db, ids.map(Number));
   res.json({ deleted });
 });
@@ -150,6 +152,11 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
           UPDATE transactions SET reimbursed_note = 'Terugbetaling'
           WHERE id = ? AND reimbursed_note IS NULL
         `).run(tx.id);
+
+        db.prepare(`
+          INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
+          VALUES (?, ?, ?)
+        `).run(tx.id, match.id, Math.abs(match.amount));
       }
     }
   }
@@ -172,6 +179,11 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
       UPDATE transactions SET reimbursed_note = 'Terugbetaling'
       WHERE id = ? AND reimbursed_note IS NULL
     `).run(repaymentTx.id);
+
+    db.prepare(`
+      INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
+      VALUES (?, ?, ?)
+    `).run(repaymentTx.id, advanceTx.id, Math.abs(advanceTx.amount));
   }
 
   const updated = getTransactionsByIds(db, txs.map(t => t.id));
@@ -254,6 +266,11 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
         UPDATE transactions SET reimbursed_note = 'Terugbetaling'
         WHERE id = ? AND reimbursed_note IS NULL
       `).run(id);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
+        VALUES (?, ?, ?)
+      `).run(id, match.id, Math.abs(match.amount));
     }
   }
 
@@ -281,6 +298,11 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
         UPDATE transactions SET reimbursed_note = 'Terugbetaling'
         WHERE id = ? AND reimbursed_note IS NULL
       `).run(match.id);
+
+      db.prepare(`
+        INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
+        VALUES (?, ?, ?)
+      `).run(match.id, id, Math.abs(tx.amount));
     }
   }
 
@@ -297,7 +319,9 @@ router.put('/:id', (req: Request, res: Response) => {
 
 router.delete('/:id', (req: Request, res: Response) => {
   const db = getDb();
-  const deleted = deleteTransaction(db, Number(req.params['id']));
+  const id = Number(req.params['id']);
+  cleanupLinksForDeletedTransaction(db, id);
+  const deleted = deleteTransaction(db, id);
   if (!deleted) return res.status(404).json({ error: 'Not found' });
   res.status(204).send();
 });

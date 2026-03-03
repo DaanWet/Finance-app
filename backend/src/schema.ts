@@ -123,6 +123,15 @@ export function runMigrations(db: Database.Database): void {
       gmail_message_id TEXT,
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS reimbursement_links (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      income_transaction_id  INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+      expense_transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+      amount                 REAL NOT NULL,
+      created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(income_transaction_id, expense_transaction_id)
+    );
   `);
 
   // Migration: remove is_work_expense column, derive work expenses from type+organization
@@ -204,6 +213,7 @@ export function runMigrations(db: Database.Database): void {
   const ensureCat = db.prepare("INSERT OR IGNORE INTO categories (name, color, icon) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = ?)");
   ensureCat.run('Vaste lasten thuis', '#10b981', '🏠', 'Vaste lasten thuis');
   ensureCat.run('Persoonlijke verzorging', '#ec4899', '💇', 'Persoonlijke verzorging');
+  ensureCat.run('Reizen', '#0ea5e9', '✈️', 'Reizen');
 
   seedInitialData(db);
 }
@@ -227,6 +237,7 @@ function seedInitialData(db: Database.Database): void {
       ['Overige', '#94a3b8', '📦'],
       ['Vaste lasten thuis', '#10b981', '🏠'],
       ['Persoonlijke verzorging', '#ec4899', '💇'],
+      ['Reizen', '#0ea5e9', '✈️'],
     ];
     const stmt = db.prepare('INSERT INTO categories (name, color, icon) VALUES (?, ?, ?)');
     for (const [name, color, icon] of cats) {

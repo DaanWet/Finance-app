@@ -2,7 +2,7 @@ import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
-import { Transaction, Organization, Category, TransactionType, ImportResult, CsvPreviewRow, SplitwiseExpense } from '../../models';
+import { Transaction, Organization, Category, TransactionType, ImportResult, CsvPreviewRow, SplitwiseExpense, ReimbursementLink, ExpenseCandidateTransaction, IncomeCandidateTransaction } from '../../models';
 
 @Component({
   selector: 'app-transactions',
@@ -99,6 +99,19 @@ export class Transactions implements OnInit {
     return visible.length > 0 && visible.every(r => this.selectedIndices().has(r.index));
   });
 
+  // Reimbursement links (in edit modal)
+  editLinks = signal<{ as_income: ReimbursementLink[]; as_expense: ReimbursementLink[] }>({ as_income: [], as_expense: [] });
+  expenseCandidates = signal<ExpenseCandidateTransaction[]>([]);
+  showAddExpenseLink = signal(false);
+  linkingExpenseId = signal<number | null>(null);
+  linkingAmount = signal<number>(0);
+  linkSaving = signal(false);
+  // Reimbursable → income linking
+  incomeCandidates = signal<IncomeCandidateTransaction[]>([]);
+  showAddIncomeLink = signal(false);
+  selectedIncomeId = signal<number | null>(null);
+  linkingIncomeAmount = signal<number>(0);
+
   // Filters
   filterType = '';
   filterCategory = '';
@@ -180,8 +193,14 @@ export class Transactions implements OnInit {
     };
     this.splitwiseSearch.set('');
     this.splitwiseShowAll.set(false);
+    this.showAddExpenseLink.set(false);
+    this.showAddIncomeLink.set(false);
+    this.editLinks.set({ as_income: [], as_expense: [] });
     this.showModal.set(true);
     this.loadSplitwiseExpenses();
+    if (tx.type === 'income' || tx.type === 'reimbursable') {
+      this.loadLinks(tx.id);
+    }
   }
 
   closeModal() {
@@ -312,6 +331,88 @@ export class Transactions implements OnInit {
         this.reanalyzingId.set(null);
         alert('Heranalyse mislukt');
       },
+    });
+  }
+
+  // --- Reimbursement links ---
+  loadLinks(txId: number) {
+    this.api.getReimbursementLinks(txId).subscribe(links => {
+      this.editLinks.set(links);
+    });
+  }
+
+  openAddExpenseLink() {
+    this.showAddExpenseLink.set(true);
+    this.linkingExpenseId.set(null);
+    this.linkingAmount.set(0);
+    this.api.getExpenseCandidates().subscribe(candidates => {
+      this.expenseCandidates.set(candidates);
+    });
+  }
+
+  selectExpenseCandidate(expId: number) {
+    this.linkingExpenseId.set(expId);
+    const candidate = this.expenseCandidates().find(c => c.id === expId);
+    if (candidate) this.linkingAmount.set(Math.abs(candidate.amount));
+  }
+
+  confirmAddExpenseLink() {
+    const incomeId = this.editingTx()?.id;
+    const expenseId = this.linkingExpenseId();
+    if (!incomeId || !expenseId) return;
+
+    this.linkSaving.set(true);
+    this.api.linkIncomeToExpenses({
+      income_transaction_id: incomeId,
+      expenses: [{ expense_transaction_id: expenseId, amount: this.linkingAmount() }],
+    }).subscribe({
+      next: () => {
+        this.linkSaving.set(false);
+        this.showAddExpenseLink.set(false);
+        this.loadLinks(incomeId);
+      },
+      error: () => this.linkSaving.set(false),
+    });
+  }
+
+  removeExpenseLink(link: ReimbursementLink) {
+    this.api.unlinkExpense(link.income_transaction_id, link.expense_transaction_id).subscribe(() => {
+      const txId = this.editingTx()?.id;
+      if (txId) this.loadLinks(txId);
+    });
+  }
+
+  linkedTotal(): number {
+    return this.editLinks().as_income.reduce((sum, l) => sum + l.amount, 0);
+  }
+
+  // --- Reimbursable → income linking ---
+  openAddIncomeLink() {
+    this.showAddIncomeLink.set(true);
+    this.selectedIncomeId.set(null);
+    const tx = this.editingTx();
+    this.linkingIncomeAmount.set(tx ? Math.abs(tx.amount) : 0);
+    this.api.getIncomeCandidates().subscribe(candidates => {
+      this.incomeCandidates.set(candidates);
+    });
+  }
+
+  confirmAddIncomeLink() {
+    const expenseId = this.editingTx()?.id;
+    const incomeId = this.selectedIncomeId();
+    if (!expenseId || !incomeId) return;
+
+    this.linkSaving.set(true);
+    this.api.linkIncomeToExpenses({
+      income_transaction_id: incomeId,
+      expenses: [{ expense_transaction_id: expenseId, amount: this.linkingIncomeAmount() }],
+    }).subscribe({
+      next: () => {
+        this.linkSaving.set(false);
+        this.showAddIncomeLink.set(false);
+        this.loadLinks(expenseId);
+      },
+      error: () => this.linkSaving.set(false),
     });
   }
 

@@ -5,7 +5,8 @@ import {
   Transaction, Organization, Category, ReimbursementGroup,
   DashboardSummary, SplitwiseExpense, SplitwiseBalance,
   ClassificationRule, ImportResult, CsvPreviewRow,
-  ExpenseReceipt, ExpensesPageData, GmailFetchResult
+  ExpenseReceipt, ExpensesPageData, GmailFetchResult,
+  ReimbursementLink, IncomeCandidateTransaction, ExpenseCandidateTransaction
 } from '../models';
 
 const BASE = 'http://localhost:3000/api';
@@ -109,6 +110,30 @@ export class ApiService {
     return this.http.post<{ success: boolean }>(`${BASE}/reimbursements/${id}/mark-received`, { note });
   }
 
+  linkIncomeToExpenses(data: { income_transaction_id: number; expenses: { expense_transaction_id: number; amount: number }[] }): Observable<{ links: ReimbursementLink[] }> {
+    return this.http.post<{ links: ReimbursementLink[] }>(`${BASE}/reimbursements/link`, data);
+  }
+
+  unlinkExpense(incomeId: number, expenseId: number): Observable<{ success: boolean }> {
+    return this.http.delete<{ success: boolean }>(`${BASE}/reimbursements/link/${incomeId}/${expenseId}`);
+  }
+
+  getReimbursementLinks(transactionId: number): Observable<{ as_income: ReimbursementLink[]; as_expense: ReimbursementLink[] }> {
+    return this.http.get<{ as_income: ReimbursementLink[]; as_expense: ReimbursementLink[] }>(`${BASE}/reimbursements/links/${transactionId}`);
+  }
+
+  getIncomeCandidates(organizationId?: number): Observable<IncomeCandidateTransaction[]> {
+    let params = new HttpParams();
+    if (organizationId) params = params.set('organization_id', organizationId.toString());
+    return this.http.get<IncomeCandidateTransaction[]>(`${BASE}/reimbursements/income-candidates`, { params });
+  }
+
+  getExpenseCandidates(organizationId?: number): Observable<ExpenseCandidateTransaction[]> {
+    let params = new HttpParams();
+    if (organizationId) params = params.set('organization_id', organizationId.toString());
+    return this.http.get<ExpenseCandidateTransaction[]>(`${BASE}/reimbursements/expense-candidates`, { params });
+  }
+
   // Splitwise
   connectSplitwise(): Observable<{ id: number; name: string }> {
     return this.http.get<{ id: number; name: string }>(`${BASE}/splitwise/connect`);
@@ -148,8 +173,8 @@ export class ApiService {
   }
 
   // Expenses
-  getExpenses(month: string): Observable<ExpensesPageData> {
-    return this.http.get<ExpensesPageData>(`${BASE}/expenses`, { params: { month } });
+  getExpenses(): Observable<ExpensesPageData> {
+    return this.http.get<ExpensesPageData>(`${BASE}/expenses`);
   }
 
   uploadReceipt(txId: number, file: File): Observable<ExpenseReceipt> {
