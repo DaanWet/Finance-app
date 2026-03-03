@@ -3,9 +3,10 @@
   <div class="page-header">
     <h1>Onkostennota</h1>
     <div class="header-actions">
-      <!-- Month selector -->
+      <!-- Month selector — only for export & gmail -->
       <input type="month" class="month-input" [ngModel]="selectedMonth()"
-             (ngModelChange)="selectedMonth.set($event); onMonthChange()">
+             (ngModelChange)="selectedMonth.set($event)"
+             title="Maand voor export & Gmail-tickets">
 
       @if (!gmailConnected()) {
         <button class="btn-gmail" (click)="connectGmail()" title="Koppel Google-account voor NMBS-tickets">
@@ -79,77 +80,132 @@
       <p>Werkorganisatie niet geconfigureerd</p>
       <small class="text-muted">Ga naar <a routerLink="/settings">Instellingen</a> en kies een werkorganisatie om onkosten te beheren.</small>
     </div>
-  } @else if (transactions().length === 0) {
+  } @else if (transactions().length === 0 && reimbursedTransactions().length === 0) {
     <div class="empty-state">
       <div class="empty-icon">🧾</div>
-      <p>Geen werkuitgaven voor {{ formatMonthLabel(selectedMonth()) }}</p>
+      <p>Geen werkuitgaven gevonden</p>
       <small class="text-muted">Markeer transacties als terugbetaalbaar met de werkorganisatie op de Transacties-pagina.</small>
     </div>
   } @else {
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Datum</th>
-            <th>Beschrijving</th>
-            <th>Categorie</th>
-            <th style="text-align:right">Bedrag</th>
-            <th>Bewijsstukken</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (tx of transactions(); track tx.id) {
-            <tr [class.row-missing]="!tx.receipts?.length">
-              <td class="text-muted">{{ formatDate(tx.date) }}</td>
-              <td>
-                {{ tx.description }}
-                @if (tx.ing_transaction_id) {
-                  <span class="badge" style="background:rgba(59,130,246,0.1);color:#60a5fa;margin-left:4px">🏦</span>
-                }
-              </td>
-              <td>
-                @if (tx.category_name) {
-                  <span [style.color]="tx.category_color">{{ tx.category_icon }} {{ tx.category_name }}</span>
-                } @else {
-                  <span class="text-muted">—</span>
-                }
-              </td>
-              <td style="text-align:right" [class]="tx.amount >= 0 ? 'amount-positive' : 'amount-negative'">
-                {{ tx.amount >= 0 ? '+' : '' }}{{ formatEur(tx.amount) }}
-              </td>
-              <td class="receipts-cell">
-                @if (tx.receipts?.length) {
-                  @for (r of tx.receipts; track r.id) {
-                    <span class="receipt-chip" [title]="r.filename">
-                      <a class="receipt-link" [href]="getReceiptUrl(tx.id, r.id)" target="_blank"
-                         (click)="$event.stopPropagation()">
-                        {{ receiptIcon(r.content_type) }} {{ r.filename | slice:0:20 }}{{ r.filename.length > 20 ? '…' : '' }}
-                      </a>
-                      <button class="receipt-del" (click)="deleteReceipt(tx, r)" title="Verwijder bijlage">✕</button>
-                    </span>
-                  }
-                  <label class="upload-add" title="Bewijsstuk toevoegen">
-                    @if (uploadingFor() === tx.id) { ⏳ } @else { + }
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png"
-                           (change)="onReceiptFileSelected($event, tx.id)"
-                           [disabled]="uploadingFor() !== null"
-                           style="display:none">
-                  </label>
-                } @else {
-                  <label class="missing-badge missing-badge--clickable"
-                         [title]="uploadingFor() === tx.id ? 'Bezig...' : 'Klik om bewijsstuk te uploaden'">
-                    @if (uploadingFor() === tx.id) { ⏳ Uploaden... } @else { Geen bewijs }
-                    <input type="file" accept=".pdf,.jpg,.jpeg,.png"
-                           (change)="onReceiptFileSelected($event, tx.id)"
-                           [disabled]="uploadingFor() !== null"
-                           style="display:none">
-                  </label>
-                }
-              </td>
+    <!-- Open expenses -->
+    @if (transactions().length > 0) {
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>Beschrijving</th>
+              <th>Categorie</th>
+              <th style="text-align:right">Bedrag</th>
+              <th>Bewijsstukken</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            @for (tx of transactions(); track tx.id) {
+              <tr [class.row-missing]="!tx.receipts?.length">
+                <td class="text-muted">{{ formatDate(tx.date) }}</td>
+                <td>
+                  {{ tx.description }}
+                  @if (tx.ing_transaction_id) {
+                    <span class="badge" style="background:rgba(59,130,246,0.1);color:#60a5fa;margin-left:4px">🏦</span>
+                  }
+                </td>
+                <td>
+                  @if (tx.category_name) {
+                    <span [style.color]="tx.category_color">{{ tx.category_icon }} {{ tx.category_name }}</span>
+                  } @else {
+                    <span class="text-muted">—</span>
+                  }
+                </td>
+                <td style="text-align:right" [class]="tx.amount >= 0 ? 'amount-positive' : 'amount-negative'">
+                  {{ tx.amount >= 0 ? '+' : '' }}{{ formatEur(tx.amount) }}
+                </td>
+                <td class="receipts-cell">
+                  @if (tx.receipts?.length) {
+                    @for (r of tx.receipts; track r.id) {
+                      <span class="receipt-chip" [title]="r.filename">
+                        <a class="receipt-link" [href]="getReceiptUrl(tx.id, r.id)" target="_blank"
+                           (click)="$event.stopPropagation()">
+                          {{ receiptIcon(r.content_type) }} {{ r.filename | slice:0:20 }}{{ r.filename.length > 20 ? '…' : '' }}
+                        </a>
+                        <button class="receipt-del" (click)="deleteReceipt(tx, r)" title="Verwijder bijlage">✕</button>
+                      </span>
+                    }
+                    <label class="upload-add" title="Bewijsstuk toevoegen">
+                      @if (uploadingFor() === tx.id) { ⏳ } @else { + }
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png"
+                             (change)="onReceiptFileSelected($event, tx.id)"
+                             [disabled]="uploadingFor() !== null"
+                             style="display:none">
+                    </label>
+                  } @else {
+                    <label class="missing-badge missing-badge--clickable"
+                           [title]="uploadingFor() === tx.id ? 'Bezig...' : 'Klik om bewijsstuk te uploaden'">
+                      @if (uploadingFor() === tx.id) { ⏳ Uploaden... } @else { Geen bewijs }
+                      <input type="file" accept=".pdf,.jpg,.jpeg,.png"
+                             (change)="onReceiptFileSelected($event, tx.id)"
+                             [disabled]="uploadingFor() !== null"
+                             style="display:none">
+                    </label>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <p class="text-muted" style="padding: 1rem 0">Geen openstaande werkuitgaven.</p>
+    }
+
+    <!-- Reimbursed expenses -->
+    @if (reimbursedTransactions().length > 0) {
+      <div class="section-header">
+        <h2 class="section-title">Terugbetaald</h2>
+        <button class="btn-secondary btn-sm" (click)="showReimbursed.set(!showReimbursed())">
+          {{ showReimbursed() ? 'Verbergen' : 'Tonen' }} ({{ reimbursedTransactions().length }})
+        </button>
+      </div>
+
+      @if (showReimbursed()) {
+        <div class="table-wrap reimbursed-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Datum</th>
+                <th>Beschrijving</th>
+                <th>Categorie</th>
+                <th style="text-align:right">Bedrag</th>
+                <th>Terugbetaald</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (tx of reimbursedTransactions(); track tx.id) {
+                <tr>
+                  <td class="text-muted">{{ formatDate(tx.date) }}</td>
+                  <td>{{ tx.description }}</td>
+                  <td>
+                    @if (tx.category_name) {
+                      <span [style.color]="tx.category_color">{{ tx.category_icon }} {{ tx.category_name }}</span>
+                    } @else {
+                      <span class="text-muted">—</span>
+                    }
+                  </td>
+                  <td style="text-align:right" class="text-muted">
+                    {{ formatEur(tx.amount) }}
+                  </td>
+                  <td class="text-success">
+                    {{ formatDate(tx.reimbursed_at!) }}
+                    @if (tx.reimbursed_note) {
+                      <span class="text-muted" style="margin-left:0.5rem">{{ tx.reimbursed_note }}</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
   }
 </div>

@@ -35,45 +35,44 @@ function parseMonth(raw: string | undefined): string {
 }
 
 // ─── GET /api/expenses ────────────────────────────────────────────────────────
-// Returns work-expense transactions for a given month, with their receipts.
+// Returns all work-expense transactions: open (unreimbursed) + reimbursed.
 
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
   const workOrgId = getSetting('work_organization_id');
 
-  const month = parseMonth(req.query['month'] as string | undefined);
-
   if (!workOrgId) {
-    return res.json({ month, transactions: [], gmail_connected: isGmailConnected(), work_org_configured: false });
+    return res.json({ transactions: [], reimbursed: [], gmail_connected: isGmailConnected(), work_org_configured: false });
   }
 
-  const [year, mon] = month.split('-');
-  const dateFrom = `${year}-${mon}-01`;
-  const dateTo   = `${year}-${mon}-31`; // SQLite TEXT comparison is fine
-
-  const transactions = db.prepare(`
+  const baseQuery = `
     SELECT
       t.id, t.description, t.amount, t.date, t.type,
       t.category_id, t.organization_id, t.notes,
       t.counterparty_account, t.ing_transaction_id,
+      t.reimbursed_at, t.reimbursed_note,
       c.name  AS category_name,  c.color AS category_color, c.icon AS category_icon,
       o.name  AS organization_name, o.color AS organization_color
     FROM transactions t
     LEFT JOIN categories    c ON c.id = t.category_id
     LEFT JOIN organizations o ON o.id = t.organization_id
     WHERE t.type = 'reimbursable'
-      AND t.organization_id = ?
-      AND t.date BETWEEN ? AND ?
-    ORDER BY t.date DESC, t.created_at DESC
-  `).all(Number(workOrgId), dateFrom, dateTo) as Record<string, unknown>[];
+      AND t.organization_id = ?`;
+
+  const openTxs = db.prepare(`${baseQuery} AND t.reimbursed_at IS NULL ORDER BY t.date DESC, t.created_at DESC`)
+    .all(Number(workOrgId)) as Record<string, unknown>[];
+
+  const reimbursedTxs = db.prepare(`${baseQuery} AND t.reimbursed_at IS NOT NULL ORDER BY t.reimbursed_at DESC, t.date DESC`)
+    .all(Number(workOrgId)) as Record<string, unknown>[];
 
   // Attach receipt metadata (no data blob) per transaction
-  const receipts = transactions.length > 0
+  const allTxs = [...openTxs, ...reimbursedTxs];
+  const receipts = allTxs.length > 0
     ? db.prepare(`
         SELECT id, transaction_id, filename, content_type, gmail_message_id, created_at
         FROM expense_receipts
-        WHERE transaction_id IN (${transactions.map(() => '?').join(',')})
-      `).all(...transactions.map(t => t['id'])) as Record<string, unknown>[]
+        WHERE transaction_id IN (${allTxs.map(() => '?').join(',')})
+      `).all(...allTxs.map(t => t['id'])) as Record<string, unknown>[]
     : [];
 
   const receiptsByTx = new Map<number, Record<string, unknown>[]>();
@@ -83,12 +82,15 @@ router.get('/', (req: Request, res: Response) => {
     receiptsByTx.get(tid)!.push(r);
   }
 
-  const result = transactions.map(t => ({
-    ...t,
-    receipts: receiptsByTx.get(t['id'] as number) ?? [],
-  }));
+  const attachReceipts = (txs: Record<string, unknown>[]) =>
+    txs.map(t => ({ ...t, receipts: receiptsByTx.get(t['id'] as number) ?? [] }));
 
-  res.json({ month, transactions: result, gmail_connected: isGmailConnected(), work_org_configured: true });
+  res.json({
+    transactions: attachReceipts(openTxs),
+    reimbursed: attachReceipts(reimbursedTxs),
+    gmail_connected: isGmailConnected(),
+    work_org_configured: true,
+  });
 });
 
 // ─── POST /api/expenses/:id/receipt ───────────────────────────────────────────

@@ -13,6 +13,7 @@ import { WorkExpense, ExpenseReceipt } from '../../models';
 })
 export class Expenses implements OnInit {
   transactions = signal<WorkExpense[]>([]);
+  reimbursedTransactions = signal<WorkExpense[]>([]);
   loading = signal(true);
   gmailConnected = signal(false);
   workOrgConfigured = signal(true); // default true to avoid flash
@@ -20,8 +21,9 @@ export class Expenses implements OnInit {
   fetchResult = signal<{ fetched: number; linked: number; unmatched: string[] } | null>(null);
   uploadingFor = signal<number | null>(null);
   expandedRows = signal<Set<number>>(new Set());
+  showReimbursed = signal(false);
 
-  // Month selector — default to current month
+  // Month selector — only for export & gmail fetch
   selectedMonth = signal(this.currentMonth());
 
   totalAmount = computed(() =>
@@ -48,21 +50,16 @@ export class Expenses implements OnInit {
 
   load() {
     this.loading.set(true);
-    this.api.getExpenses(this.selectedMonth()).subscribe({
+    this.api.getExpenses().subscribe({
       next: data => {
         this.transactions.set(data.transactions);
+        this.reimbursedTransactions.set(data.reimbursed);
         this.gmailConnected.set(data.gmail_connected);
         this.workOrgConfigured.set(data.work_org_configured ?? true);
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
     });
-  }
-
-  onMonthChange() {
-    this.fetchResult.set(null);
-    this.expandedRows.set(new Set());
-    this.load();
   }
 
   toggleExpand(txId: number) {
