@@ -474,3 +474,11 @@ td.cell-type {
     margin-top: 0;
   }
 }
+
+.splitwise-detail {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+}

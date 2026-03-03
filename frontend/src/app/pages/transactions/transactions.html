@@ -443,7 +443,7 @@
                 [value]="splitwiseSearch()"
                 (input)="splitwiseSearch.set($any($event.target).value); splitwiseShowAll.set(false)"
               >
-              <select [(ngModel)]="form.splitwise_expense_id" name="splitwise_expense_id" size="4" style="margin-top:4px">
+              <select [(ngModel)]="form.splitwise_expense_id" (ngModelChange)="formSplitwiseId.set($event)" name="splitwise_expense_id" size="4" style="margin-top:4px">
                 <option [ngValue]="null">— Geen koppeling —</option>
                 @for (exp of filteredSplitwise(); track exp.id) {
                   <option [ngValue]="exp.id.toString()">
@@ -451,6 +451,14 @@
                   </option>
                 }
               </select>
+              @if (form.splitwise_expense_id) {
+                @if (getSplitwiseExpense(form.splitwise_expense_id); as sw) {
+                  <div class="splitwise-detail">
+                    <span>Betaald: €{{ sw.my_paid_share }}</span>
+                    <span>Mijn aandeel: €{{ sw.my_owed_share }}</span>
+                  </div>
+                }
+              }
               @if (!splitwiseShowAll() && !splitwiseSearch()) {
                 <button type="button" class="btn-link" (click)="splitwiseShowAll.set(true)">
                   Alle onkosten tonen ({{ splitwiseExpenses().length }})

@@ -26,6 +26,8 @@ export class Transactions implements OnInit {
   splitwiseSearch = signal('');
   splitwiseShowAll = signal(false);
   splitwiseDetail = signal<SplitwiseExpense | null>(null);
+  formAmount = signal<number | undefined>(undefined);
+  formSplitwiseId = signal<string | null>(null);
 
   // Bulk selection
   selectedIds = signal<Set<number>>(new Set());
@@ -58,8 +60,9 @@ export class Transactions implements OnInit {
   filteredSplitwise = computed(() => {
     const all = this.splitwiseExpenses();
     const search = this.splitwiseSearch().toLowerCase();
-    const amount = Math.abs(Number(this.form.amount) || 0);
+    const amount = Math.abs(Number(this.formAmount()) || 0);
     const showAll = this.splitwiseShowAll();
+    const currentId = this.formSplitwiseId();
 
     let list = all.filter(e => e.my_paid_share > 0);
     if (search) {
@@ -70,6 +73,16 @@ export class Transactions implements OnInit {
     } else if (!showAll && amount > 0) {
       list = list.filter(e => Math.abs(e.my_paid_share - amount) / amount <= 0.1);
     }
+
+    // Altijd de huidige gekoppelde expense tonen
+    if (currentId != null) {
+      const normalized = String(parseInt(String(currentId), 10));
+      if (!list.some(e => String(e.id) === normalized)) {
+        const linked = all.find(e => String(e.id) === normalized);
+        if (linked) list = [linked, ...list];
+      }
+    }
+
     return list;
   });
 
@@ -174,6 +187,8 @@ export class Transactions implements OnInit {
       notes: '',
       splitwise_expense_id: null,
     };
+    this.formAmount.set(undefined);
+    this.formSplitwiseId.set(null);
     this.showModal.set(true);
   }
 
@@ -191,6 +206,8 @@ export class Transactions implements OnInit {
         ? String(parseInt(String(tx.splitwise_expense_id), 10))
         : null,
     };
+    this.formAmount.set(tx.amount);
+    this.formSplitwiseId.set(this.form.splitwise_expense_id ?? null);
     this.splitwiseSearch.set('');
     this.splitwiseShowAll.set(false);
     this.showAddExpenseLink.set(false);
