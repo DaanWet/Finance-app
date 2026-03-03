@@ -53,7 +53,6 @@ export function runMigrations(db: Database.Database): void {
   // Additive migrations for existing databases
   try { db.exec(`ALTER TABLE transactions ADD COLUMN counterparty_account TEXT`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN category_confirmed INTEGER NOT NULL DEFAULT 1`); } catch {}
-  try { db.exec(`ALTER TABLE transactions ADD COLUMN is_work_expense INTEGER NOT NULL DEFAULT 0`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN splitwise_owed_share REAL`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN counterparty_name TEXT`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN original_description TEXT`); } catch {}
@@ -80,7 +79,6 @@ export function runMigrations(db: Database.Database): void {
         notes                TEXT,
         counterparty_account TEXT,
         category_confirmed   INTEGER NOT NULL DEFAULT 1,
-        is_work_expense      INTEGER NOT NULL DEFAULT 0,
         created_at           TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
       );
@@ -88,7 +86,7 @@ export function runMigrations(db: Database.Database): void {
         id, description, amount, date, type, category_id, organization_id,
         reimbursed_at, reimbursed_note, ing_transaction_id, splitwise_expense_id,
         splitwise_owed_share, payment_method, notes, counterparty_account,
-        category_confirmed, is_work_expense, created_at, updated_at
+        category_confirmed, created_at, updated_at
       FROM transactions;
       DROP TABLE transactions;
       ALTER TABLE transactions_new RENAME TO transactions;
@@ -126,6 +124,74 @@ export function runMigrations(db: Database.Database): void {
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migration: remove is_work_expense column, derive work expenses from type+organization
+  const txDefWork = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get() as { sql: string } | undefined)?.sql ?? '';
+  if (txDefWork.includes('is_work_expense')) {
+    // Step 1: Auto-detect work_organization_id from existing data if not set
+    const workOrgSetting = db.prepare("SELECT value FROM settings WHERE key='work_organization_id'").get() as { value: string } | undefined;
+    if (!workOrgSetting) {
+      const mostCommonOrg = db.prepare(`
+        SELECT organization_id, COUNT(*) as cnt
+        FROM transactions
+        WHERE is_work_expense = 1 AND organization_id IS NOT NULL
+        GROUP BY organization_id
+        ORDER BY cnt DESC
+        LIMIT 1
+      `).get() as { organization_id: number; cnt: number } | undefined;
+
+      if (mostCommonOrg) {
+        db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('work_organization_id', ?)").run(String(mostCommonOrg.organization_id));
+      }
+    }
+
+    // Step 2: Ensure is_work_expense=1 transactions have type='reimbursable' and correct org
+    const workOrgId = (db.prepare("SELECT value FROM settings WHERE key='work_organization_id'").get() as { value: string } | undefined)?.value;
+    if (workOrgId) {
+      db.prepare(`
+        UPDATE transactions
+        SET type = 'reimbursable', organization_id = ?
+        WHERE is_work_expense = 1 AND (type != 'reimbursable' OR organization_id IS NULL OR organization_id != ?)
+      `).run(Number(workOrgId), Number(workOrgId));
+    }
+
+    // Step 3: Rebuild table without is_work_expense
+    db.exec(`
+      PRAGMA foreign_keys = OFF;
+      CREATE TABLE transactions_migrated (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        description          TEXT NOT NULL,
+        amount               REAL NOT NULL,
+        date                 TEXT NOT NULL,
+        type                 TEXT NOT NULL CHECK(type IN ('personal', 'reimbursable', 'income', 'savings')),
+        category_id          INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+        organization_id      INTEGER REFERENCES organizations(id) ON DELETE SET NULL,
+        reimbursed_at        TEXT,
+        reimbursed_note      TEXT,
+        ing_transaction_id   TEXT UNIQUE,
+        splitwise_expense_id TEXT,
+        splitwise_owed_share REAL,
+        payment_method       TEXT,
+        notes                TEXT,
+        counterparty_account TEXT,
+        counterparty_name    TEXT,
+        original_description TEXT,
+        category_confirmed   INTEGER NOT NULL DEFAULT 1,
+        created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at           TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      INSERT INTO transactions_migrated SELECT
+        id, description, amount, date, type, category_id, organization_id,
+        reimbursed_at, reimbursed_note, ing_transaction_id, splitwise_expense_id,
+        splitwise_owed_share, payment_method, notes, counterparty_account,
+        counterparty_name, original_description, category_confirmed,
+        created_at, updated_at
+      FROM transactions;
+      DROP TABLE transactions;
+      ALTER TABLE transactions_migrated RENAME TO transactions;
+      PRAGMA foreign_keys = ON;
+    `);
+  }
 
   // Fix splitwise_expense_id stored as REAL (e.g. "4089538700.0" instead of "4089538700")
   db.exec(`

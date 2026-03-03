@@ -18,7 +18,7 @@
         </button>
       }
 
-      <button class="btn-export" (click)="exportExcel()" [disabled]="workExpenses().length === 0"
+      <button class="btn-export" (click)="exportExcel()" [disabled]="transactions().length === 0"
               title="Download Excel-onkostennota">
         📊 Excel
       </button>
@@ -38,7 +38,7 @@
         ✅ {{ fr.fetched }} ticket(s) gevonden — {{ fr.linked }} automatisch gekoppeld.
         @if (fr.unmatched.length > 0) {
           <span class="unmatched-hint">
-            {{ fr.unmatched.length }} niet gekoppeld (geen passende transactie gevonden als werkuitgave):
+            {{ fr.unmatched.length }} niet gekoppeld (geen passende transactie gevonden):
             @for (u of fr.unmatched; track u) { <em>{{ u }}</em> }
           </span>
         }
@@ -48,11 +48,11 @@
   }
 
   <!-- Summary bar -->
-  @if (workExpenses().length > 0) {
+  @if (transactions().length > 0) {
     <div class="summary-bar card">
       <div class="summary-stat">
         <span class="summary-label">Werkuitgaven</span>
-        <span class="summary-value">{{ workExpenses().length }}</span>
+        <span class="summary-value">{{ transactions().length }}</span>
       </div>
       <div class="summary-stat">
         <span class="summary-label">Totaal</span>
@@ -73,36 +73,33 @@
 
   @if (loading()) {
     <div class="loading">Laden...</div>
+  } @else if (!workOrgConfigured()) {
+    <div class="empty-state">
+      <div class="empty-icon">⚙️</div>
+      <p>Werkorganisatie niet geconfigureerd</p>
+      <small class="text-muted">Ga naar <a routerLink="/settings">Instellingen</a> en kies een werkorganisatie om onkosten te beheren.</small>
+    </div>
   } @else if (transactions().length === 0) {
     <div class="empty-state">
       <div class="empty-icon">🧾</div>
-      <p>Geen transacties gevonden voor {{ formatMonthLabel(selectedMonth()) }}</p>
-      <small class="text-muted">Importeer eerst transacties via de Transacties-pagina.</small>
+      <p>Geen werkuitgaven voor {{ formatMonthLabel(selectedMonth()) }}</p>
+      <small class="text-muted">Markeer transacties als terugbetaalbaar met de werkorganisatie op de Transacties-pagina.</small>
     </div>
   } @else {
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
-            <th class="col-work" title="Markeer als werkuitgave">🧾</th>
             <th>Datum</th>
             <th>Beschrijving</th>
             <th>Categorie</th>
             <th style="text-align:right">Bedrag</th>
             <th>Bewijsstukken</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
           @for (tx of transactions(); track tx.id) {
-            <tr [class.row-work]="tx.is_work_expense" [class.row-missing]="tx.is_work_expense && !tx.receipts?.length">
-              <td class="col-work">
-                <button class="toggle-btn" [class.toggle-btn--active]="tx.is_work_expense"
-                        (click)="toggleWorkExpense(tx)"
-                        [title]="tx.is_work_expense ? 'Niet meer als werkuitgave markeren' : 'Markeren als werkuitgave'">
-                  {{ tx.is_work_expense ? '✓' : '○' }}
-                </button>
-              </td>
+            <tr [class.row-missing]="!tx.receipts?.length">
               <td class="text-muted">{{ formatDate(tx.date) }}</td>
               <td>
                 {{ tx.description }}
@@ -121,23 +118,27 @@
                 {{ tx.amount >= 0 ? '+' : '' }}{{ formatEur(tx.amount) }}
               </td>
               <td class="receipts-cell">
-                @if (tx.is_work_expense) {
-                  @if (tx.receipts?.length) {
-                    @for (r of tx.receipts; track r.id) {
-                      <span class="receipt-chip" [title]="r.filename">
+                @if (tx.receipts?.length) {
+                  @for (r of tx.receipts; track r.id) {
+                    <span class="receipt-chip" [title]="r.filename">
+                      <a class="receipt-link" [href]="getReceiptUrl(tx.id, r.id)" target="_blank"
+                         (click)="$event.stopPropagation()">
                         {{ receiptIcon(r.content_type) }} {{ r.filename | slice:0:20 }}{{ r.filename.length > 20 ? '…' : '' }}
-                        <button class="receipt-del" (click)="deleteReceipt(tx, r)" title="Verwijder bijlage">✕</button>
-                      </span>
-                    }
-                  } @else {
-                    <span class="missing-badge">Geen bewijs</span>
+                      </a>
+                      <button class="receipt-del" (click)="deleteReceipt(tx, r)" title="Verwijder bijlage">✕</button>
+                    </span>
                   }
-                }
-              </td>
-              <td class="actions">
-                @if (tx.is_work_expense) {
-                  <label class="upload-btn" [title]="uploadingFor() === tx.id ? 'Bezig...' : 'Bewijsstuk uploaden'">
-                    @if (uploadingFor() === tx.id) { ⏳ } @else { ⬆️ }
+                  <label class="upload-add" title="Bewijsstuk toevoegen">
+                    @if (uploadingFor() === tx.id) { ⏳ } @else { + }
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png"
+                           (change)="onReceiptFileSelected($event, tx.id)"
+                           [disabled]="uploadingFor() !== null"
+                           style="display:none">
+                  </label>
+                } @else {
+                  <label class="missing-badge missing-badge--clickable"
+                         [title]="uploadingFor() === tx.id ? 'Bezig...' : 'Klik om bewijsstuk te uploaden'">
+                    @if (uploadingFor() === tx.id) { ⏳ Uploaden... } @else { Geen bewijs }
                     <input type="file" accept=".pdf,.jpg,.jpeg,.png"
                            (change)="onReceiptFileSelected($event, tx.id)"
                            [disabled]="uploadingFor() !== null"

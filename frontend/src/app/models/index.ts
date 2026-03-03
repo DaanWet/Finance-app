@@ -10,7 +10,6 @@ export interface ExpenseReceipt {
 }
 
 export interface WorkExpense extends Transaction {
-  is_work_expense: 1;
   receipts: ExpenseReceipt[];
 }
 
@@ -18,6 +17,7 @@ export interface ExpensesPageData {
   month: string;
   transactions: WorkExpense[];
   gmail_connected: boolean;
+  work_org_configured?: boolean;
 }
 
 export interface GmailFetchResult {
@@ -45,7 +45,6 @@ export interface Transaction {
   counterparty_name: string | null;
   original_description: string | null;
   category_confirmed: number;
-  is_work_expense: number;
   created_at: string;
   updated_at: string;
   // joined

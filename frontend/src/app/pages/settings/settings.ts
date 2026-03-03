@@ -16,6 +16,8 @@ export class Settings implements OnInit {
   categories = signal<Category[]>([]);
   rules = signal<ClassificationRule[]>([]);
 
+  workOrganizationId = signal<number | null>(null);
+
   splitwiseKey = '';
   splitwiseConnecting = signal(false);
   splitwiseConnected = signal(false);
@@ -30,6 +32,7 @@ export class Settings implements OnInit {
   ngOnInit() {
     this.api.getSettings().subscribe(s => {
       this.settings.set(s);
+      this.workOrganizationId.set(s['work_organization_id'] ? Number(s['work_organization_id']) : null);
       this.splitwiseKey = s['splitwise_api_key'] ?? '';
       if (s['splitwise_user_id']) {
         this.splitwiseConnected.set(true);
@@ -100,6 +103,11 @@ export class Settings implements OnInit {
     this.api.deleteClassificationRule(id).subscribe(() => {
       this.rules.update(r => r.filter(x => x.id !== id));
     });
+  }
+
+  saveWorkOrganization() {
+    const id = this.workOrganizationId();
+    this.api.setSetting('work_organization_id', id !== null ? String(id) : '').subscribe();
   }
 
   typeLabel(type: string): string {

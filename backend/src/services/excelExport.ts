@@ -39,14 +39,15 @@ export function classifyExpense(description: string, notes: string | null): {
     desc.includes('parking') || desc.includes('park.') || desc.includes('p+r') || desc.includes('4411')
   );
 
-  // Extract traject from notes "Van: X → Naar: Y" (written by Gmail fetch)
+  // Extract traject from notes "Van: X → Naar: Y (heen en terug)" (written by Gmail fetch)
   let traject = description;
   const fromM = (notes ?? '').match(/Van:\s*([^\n→]+)/i);
-  const toM   = (notes ?? '').match(/Naar:\s*([^\n]+)/i);
+  const toM   = (notes ?? '').match(/Naar:\s*([^\n(]+)/i);
   if (fromM && toM) {
     const from = fromM[1].trim();
     const to   = toM[1].trim();
-    traject = `${from} - ${to} - ${from}`; // round trip notation
+    const isRoundTrip = (notes ?? '').includes('heen en terug');
+    traject = isRoundTrip ? `${from} - ${to} - ${from}` : `${from} - ${to}`;
   }
 
   const type = isNmbs ? 'train' : isParking ? 'parking' : 'other';

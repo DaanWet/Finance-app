@@ -39,7 +39,14 @@ function parseMonth(raw: string | undefined): string {
 
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
+  const workOrgId = getSetting('work_organization_id');
+
   const month = parseMonth(req.query['month'] as string | undefined);
+
+  if (!workOrgId) {
+    return res.json({ month, transactions: [], gmail_connected: isGmailConnected(), work_org_configured: false });
+  }
+
   const [year, mon] = month.split('-');
   const dateFrom = `${year}-${mon}-01`;
   const dateTo   = `${year}-${mon}-31`; // SQLite TEXT comparison is fine
@@ -47,23 +54,27 @@ router.get('/', (req: Request, res: Response) => {
   const transactions = db.prepare(`
     SELECT
       t.id, t.description, t.amount, t.date, t.type,
-      t.category_id, t.organization_id, t.notes, t.is_work_expense,
+      t.category_id, t.organization_id, t.notes,
       t.counterparty_account, t.ing_transaction_id,
       c.name  AS category_name,  c.color AS category_color, c.icon AS category_icon,
       o.name  AS organization_name, o.color AS organization_color
     FROM transactions t
     LEFT JOIN categories    c ON c.id = t.category_id
     LEFT JOIN organizations o ON o.id = t.organization_id
-    WHERE t.date BETWEEN ? AND ?
+    WHERE t.type = 'reimbursable'
+      AND t.organization_id = ?
+      AND t.date BETWEEN ? AND ?
     ORDER BY t.date DESC, t.created_at DESC
-  `).all(dateFrom, dateTo) as Record<string, unknown>[];
+  `).all(Number(workOrgId), dateFrom, dateTo) as Record<string, unknown>[];
 
   // Attach receipt metadata (no data blob) per transaction
-  const receipts = db.prepare(`
-    SELECT id, transaction_id, filename, content_type, gmail_message_id, created_at
-    FROM expense_receipts
-    WHERE transaction_id IN (${transactions.map(() => '?').join(',') || '0'})
-  `).all(...transactions.map(t => t['id'])) as Record<string, unknown>[];
+  const receipts = transactions.length > 0
+    ? db.prepare(`
+        SELECT id, transaction_id, filename, content_type, gmail_message_id, created_at
+        FROM expense_receipts
+        WHERE transaction_id IN (${transactions.map(() => '?').join(',')})
+      `).all(...transactions.map(t => t['id'])) as Record<string, unknown>[]
+    : [];
 
   const receiptsByTx = new Map<number, Record<string, unknown>[]>();
   for (const r of receipts) {
@@ -77,21 +88,7 @@ router.get('/', (req: Request, res: Response) => {
     receipts: receiptsByTx.get(t['id'] as number) ?? [],
   }));
 
-  res.json({ month, transactions: result, gmail_connected: isGmailConnected() });
-});
-
-// ─── PUT /api/expenses/:id/toggle ─────────────────────────────────────────────
-// Toggle is_work_expense on a transaction.
-
-router.put('/:id/toggle', (req: Request, res: Response) => {
-  const db = getDb();
-  const id = Number(req.params['id']);
-  const tx = db.prepare('SELECT id, is_work_expense FROM transactions WHERE id=?').get(id) as { id: number; is_work_expense: number } | undefined;
-  if (!tx) return res.status(404).json({ error: 'Transactie niet gevonden' });
-
-  const newVal = tx.is_work_expense ? 0 : 1;
-  db.prepare('UPDATE transactions SET is_work_expense=?, updated_at=datetime(\'now\') WHERE id=?').run(newVal, id);
-  res.json({ id, is_work_expense: newVal });
+  res.json({ month, transactions: result, gmail_connected: isGmailConnected(), work_org_configured: true });
 });
 
 // ─── POST /api/expenses/:id/receipt ───────────────────────────────────────────
@@ -118,6 +115,25 @@ router.post('/:id/receipt', upload.single('file'), (req: Request, res: Response)
     content_type: req.file.mimetype,
     created_at: new Date().toISOString(),
   });
+});
+
+// ─── GET /api/expenses/:id/receipt/:receiptId ─────────────────────────────────
+// Serve the receipt file (PDF / image) for inline viewing.
+
+router.get('/:id/receipt/:receiptId', (req: Request, res: Response) => {
+  const db = getDb();
+  const txId = Number(req.params['id']);
+  const receiptId = Number(req.params['receiptId']);
+
+  const row = db.prepare(
+    'SELECT filename, content_type, data FROM expense_receipts WHERE id=? AND transaction_id=?'
+  ).get(receiptId, txId) as { filename: string; content_type: string; data: Buffer } | undefined;
+
+  if (!row) return res.status(404).json({ error: 'Bijlage niet gevonden' });
+
+  res.setHeader('Content-Type', row.content_type);
+  res.setHeader('Content-Disposition', `inline; filename="${row.filename}"`);
+  res.send(row.data);
 });
 
 // ─── DELETE /api/expenses/:id/receipt/:receiptId ──────────────────────────────
@@ -173,6 +189,11 @@ router.post('/gmail/fetch', async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Gmail niet verbonden. Koppel eerst uw Google-account.' });
   }
 
+  const workOrgId = getSetting('work_organization_id');
+  if (!workOrgId) {
+    return res.status(400).json({ error: 'Werkorganisatie niet geconfigureerd. Ga naar Instellingen.' });
+  }
+
   const month = parseMonth(req.body?.month as string | undefined);
   const [year, mon] = month.split('-');
   const dateFrom = `${year}-${mon}-01`;
@@ -187,15 +208,16 @@ router.post('/gmail/fetch', async (req: Request, res: Response) => {
     const unmatched: string[] = [];
 
     for (const { ticket, pdfBuffer, messageId } of tickets) {
-      // Find a matching transaction: same date (±1 day) and amount within 5%
+      // Find a matching transaction: exact date and amount within 5%
       const candidates = db.prepare(`
         SELECT id, amount, date FROM transactions
-        WHERE date BETWEEN date(?, '-1 day') AND date(?, '+1 day')
+        WHERE date = ?
           AND amount < 0
-          AND is_work_expense = 1
+          AND type = 'reimbursable'
+          AND organization_id = ?
         ORDER BY ABS(amount - ?) ASC
         LIMIT 5
-      `).all(ticket.date, ticket.date, -ticket.amount) as { id: number; amount: number; date: string }[];
+      `).all(ticket.date, Number(workOrgId), -ticket.amount) as { id: number; amount: number; date: string }[];
 
       let matchedId: number | null = null;
       for (const cand of candidates) {
@@ -213,7 +235,8 @@ router.post('/gmail/fetch', async (req: Request, res: Response) => {
         // Store traject in transaction notes so Excel export can use it
         if (ticket.from && ticket.to) {
           const existing = db.prepare('SELECT notes FROM transactions WHERE id=?').get(matchedId) as { notes: string | null };
-          const trajNote = `Van: ${ticket.from} → Naar: ${ticket.to}`;
+          const tripType = ticket.roundTrip ? 'heen en terug' : 'enkel';
+          const trajNote = `Van: ${ticket.from} → Naar: ${ticket.to} (${tripType})`;
           if (!existing.notes?.includes('Van:')) {
             const newNotes = existing.notes ? `${existing.notes}\n${trajNote}` : trajNote;
             db.prepare("UPDATE transactions SET notes=?, updated_at=datetime('now') WHERE id=?").run(newNotes, matchedId);
@@ -247,6 +270,11 @@ router.post('/gmail/fetch', async (req: Request, res: Response) => {
 
 router.get('/export/excel', async (req: Request, res: Response) => {
   const db = getDb();
+  const workOrgId = getSetting('work_organization_id');
+  if (!workOrgId) {
+    return res.status(400).json({ error: 'Werkorganisatie niet geconfigureerd. Ga naar Instellingen.' });
+  }
+
   const month = parseMonth(req.query['month'] as string | undefined);
   const [year, mon] = month.split('-');
   const dateFrom = `${year}-${mon}-01`;
@@ -255,9 +283,9 @@ router.get('/export/excel', async (req: Request, res: Response) => {
   const transactions = db.prepare(`
     SELECT t.id, t.description, t.amount, t.date, t.notes
     FROM transactions t
-    WHERE t.is_work_expense = 1 AND t.date BETWEEN ? AND ?
+    WHERE t.type = 'reimbursable' AND t.organization_id = ? AND t.date BETWEEN ? AND ?
     ORDER BY t.date ASC
-  `).all(dateFrom, dateTo) as { id: number; description: string; amount: number; date: string; notes: string | null }[];
+  `).all(Number(workOrgId), dateFrom, dateTo) as { id: number; description: string; amount: number; date: string; notes: string | null }[];
 
   if (transactions.length === 0) {
     return res.status(404).json({ error: 'Geen werkuitgaven gevonden voor deze maand.' });
@@ -301,6 +329,11 @@ router.get('/export/excel', async (req: Request, res: Response) => {
 
 router.get('/export/pdf', async (req: Request, res: Response) => {
   const db = getDb();
+  const workOrgId = getSetting('work_organization_id');
+  if (!workOrgId) {
+    return res.status(400).json({ error: 'Werkorganisatie niet geconfigureerd. Ga naar Instellingen.' });
+  }
+
   const month = parseMonth(req.query['month'] as string | undefined);
   const [year, mon] = month.split('-');
   const dateFrom = `${year}-${mon}-01`;
@@ -310,9 +343,9 @@ router.get('/export/pdf', async (req: Request, res: Response) => {
     SELECT r.id, r.filename, r.content_type, r.data, t.date AS transaction_date, t.description AS transaction_description
     FROM expense_receipts r
     JOIN transactions t ON t.id = r.transaction_id
-    WHERE t.is_work_expense = 1 AND t.date BETWEEN ? AND ?
+    WHERE t.type = 'reimbursable' AND t.organization_id = ? AND t.date BETWEEN ? AND ?
     ORDER BY t.date ASC, r.created_at ASC
-  `).all(dateFrom, dateTo) as { id: number; filename: string; content_type: string; data: Buffer; transaction_date: string; transaction_description: string }[];
+  `).all(Number(workOrgId), dateFrom, dateTo) as { id: number; filename: string; content_type: string; data: Buffer; transaction_date: string; transaction_description: string }[];
 
   if (receipts.length === 0) {
     return res.status(404).json({ error: 'Geen bewijsstukken gevonden voor deze maand.' });

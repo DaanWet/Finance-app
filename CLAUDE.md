@@ -10,26 +10,32 @@
 ## File structure
 ```
 backend/src/
-  index.ts          — Express entry, mounts 9 routers
+  index.ts          — Express entry, mounts 10 routers
   db.ts             — SQLite singleton, WAL-mode, foreign keys ON
   schema.ts         — DB schema + migrations + seed data
   routes/           — import, transactions, reimbursements, dashboard,
                       organizations, categories, settings, splitwise,
-                      classificationRules
+                      classificationRules, expenses
   queries/          — transactions.ts, reimbursements.ts, dashboard.ts
-  services/aiAnalysis.ts — Claude API integratie
+  services/
+    aiAnalysis.ts   — Claude API integratie
+    gmailService.ts — Google OAuth + NMBS ticket parsing
+    excelExport.ts  — Excel onkostennota generatie
+    pdfExport.ts    — PDF bonnen-bundel generatie
 frontend/src/app/
   app.ts / app.routes.ts — root + lazy routes
   models/index.ts   — TypeScript interfaces (Transaction, etc.)
   services/api.service.ts — alle HTTP-methoden
-  pages/            — dashboard, transactions, reimbursements, settings, splitwise
+  pages/            — dashboard, transactions, reimbursements, settings,
+                      splitwise, expenses
 ```
 
 ## DB schema (kern)
-- **transactions**: id, description, amount (neg=uitgave, pos=inkomst), date, type (personal/reimbursable/income), category_id, organization_id, reimbursed_at, reimbursed_note, ing_transaction_id (UNIQUE), splitwise_expense_id, counterparty_account, category_confirmed (0=AI/onbevestigd, 1=bevestigd), notes
+- **transactions**: id, description, amount (neg=uitgave, pos=inkomst), date, type (personal/reimbursable/income/savings), category_id, organization_id, reimbursed_at, reimbursed_note, ing_transaction_id (UNIQUE), splitwise_expense_id, splitwise_owed_share, counterparty_account, counterparty_name, original_description, category_confirmed (0=AI/onbevestigd, 1=bevestigd), notes
+- **expense_receipts**: id, transaction_id (FK → transactions), filename, content_type, data (BLOB), gmail_message_id, created_at
 - **categories**: id, name, color, icon (emoji)
 - **organizations**: id, name, color
-- **settings**: key-value store (splitwise_api_key, splitwise_user_id)
+- **settings**: key-value store (splitwise_api_key, splitwise_user_id, work_organization_id, google_refresh_token, google_access_token)
 - **classification_rules**: pattern, type, organization_id, category_id
 
 ## CSV import (ING)
@@ -58,6 +64,15 @@ frontend/src/app/
 - Expenses opgehaald tijdens import voor AI-context
 - Routes: /splitwise/connect, /splitwise/expenses, /splitwise/balances
 
+## Onkostennota-module
+- Werkuitgaven = transacties met `type='reimbursable'` + `organization_id` = `work_organization_id` setting
+- Markeren gebeurt op de transactiepagina (type + organisatie instellen), onkostenpagina toont enkel resultaat
+- Bonnen (PDF/JPEG/PNG, max 10MB) opgeslagen als BLOB in `expense_receipts`
+- **Gmail-integratie**: OAuth2 met googleapis, zoekt NMBS/SNCB emails (noreply@b-rail.be, info@nmbs.be, eticket@nmbs.be), parsed HTML voor bedrag/stations/datum, genereert PDF-ticket, auto-matcht op werkuitgaven (±1 dag, ±5% bedrag)
+- **Excel export**: template `backend/data/expense_template.xlsx`, DEEL I transport (traject, parking, km), DEEL II overige kosten
+- **PDF export**: combineert alle bonnen in één PDF met voorblad
+- **Env vars**: GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI (`http://localhost:3000/api/expenses/gmail/callback`)
+
 ## API Endpoints
 
 ### Transactions (`/api/transactions`)
@@ -69,6 +84,10 @@ frontend/src/app/
 | PUT | `/:id` | Bewerken (zet category_confirmed=1) |
 | DELETE | `/:id` | Verwijderen |
 | POST | `/confirm-all` | Alle onbevestigde markeren als bevestigd |
+| POST | `/bulk-confirm` | Bulk bevestigen per ID-lijst |
+| POST | `/bulk-delete` | Bulk verwijderen per ID-lijst |
+| POST | `/bulk-reanalyze` | Bulk AI re-analyse per ID-lijst |
+| POST | `/:id/reanalyze` | Enkele transactie AI re-analyse |
 
 ### Import (`/api/import`)
 | Method | Endpoint | Functie |
@@ -80,12 +99,25 @@ frontend/src/app/
 | Method | Endpoint | Functie |
 |--------|----------|---------|
 | GET | `/outstanding` | Onterugbetaald, gegroepeerd per org |
-| GET | `/received` | Terugbetaald (laatste 3 maanden) |
+| GET | `/received` | Terugbetaald (`?months=N`, default 3) |
 | POST | `/:id/mark-received` | Body: `{ note?: string }` |
 
 ### Dashboard (`/api/dashboard`)
 - `GET /?start=YYYY-MM-DD&end=YYYY-MM-DD`
-- Response: personalTotal, reimbursableOutstanding, reimbursableCount, incomeTotal, byCategory[], monthlyTrend[]
+- Response: personalTotal, reimbursableOutstanding, reimbursableCount, incomeTotal, savingsTotal, splitwisePaidForOthers, byCategory[], monthlyTrend[]
+
+### Expenses (`/api/expenses`)
+| Method | Endpoint | Functie |
+|--------|----------|---------|
+| GET | `/` | Werkkosten voor een maand (`?month=YYYY-MM`), gefilterd op work_organization_id |
+| POST | `/:id/receipt` | Upload bon (multipart, max 10MB) |
+| DELETE | `/:id/receipt/:receiptId` | Bon verwijderen |
+| GET | `/gmail/auth` | Google OAuth redirect |
+| GET | `/gmail/callback` | OAuth callback |
+| GET | `/gmail/status` | Gmail connectie-status |
+| POST | `/gmail/fetch` | NMBS tickets ophalen en matchen |
+| GET | `/export/excel` | Excel onkostennota download |
+| GET | `/export/pdf` | PDF met alle bonnen |
 
 ### Overige
 - Organizations/Categories/ClassificationRules: standaard CRUD (GET, POST, PUT /:id, DELETE /:id)
@@ -96,7 +128,8 @@ frontend/src/app/
 ```typescript
 Transaction { id, description, amount, date, type, category_id, organization_id,
   reimbursed_at, reimbursed_note, ing_transaction_id, splitwise_expense_id,
-  payment_method, notes, counterparty_account, category_confirmed,
+  payment_method, notes, counterparty_account, counterparty_name,
+  original_description, category_confirmed,
   created_at, updated_at,
   // joined:
   category_name?, category_color?, category_icon?, organization_name?, organization_color? }
@@ -104,12 +137,17 @@ Transaction { id, description, amount, date, type, category_id, organization_id,
 Organization { id, name, color }
 Category { id, name, color, icon }
 ReimbursementGroup { organization_id, organization_name, organization_color, total, count, transactions[] }
-DashboardSummary { personalTotal, reimbursableOutstanding, reimbursableCount, incomeTotal, byCategory[], monthlyTrend[] }
-SplitwiseExpense { id, description, total_cost, my_owed_share, my_paid_share, date, group_id, participants[] }
+DashboardSummary { personalTotal, reimbursableOutstanding, reimbursableCount, incomeTotal,
+  savingsTotal, splitwisePaidForOthers, byCategory[], monthlyTrend[] }
+SplitwiseExpense { id, description, total_cost, my_owed_share, my_paid_share, date, group_id, group_name, participants[] }
 SplitwiseBalance { id, name, balance }
 ClassificationRule { id, pattern, type, organization_id, category_id, organization_name?, category_name? }
 CsvPreviewRow { index, date, description, amount, counterparty_account, ing_transaction_id, duplicate }
 ImportResult { imported, skipped, total, ai_analyzed?, transactions[] }
+ExpenseReceipt { id, transaction_id, filename, content_type, gmail_message_id, created_at }
+WorkExpense extends Transaction { receipts: ExpenseReceipt[] }
+ExpensesPageData { month, transactions: WorkExpense[], gmail_connected, work_org_configured? }
+GmailFetchResult { fetched, linked, unmatched: string[] }
 ```
 
 ## Frontend pagina's (signals-gebaseerd)
@@ -125,8 +163,13 @@ ImportResult { imported, skipped, total, ai_analyzed?, transactions[] }
 ### reimbursements.ts
 - Signals: outstanding, received, loading, markingId, confirmId, confirmNote
 
+### expenses.ts
+- Signals: transactions, loading, gmailConnected, workOrgConfigured, fetchingGmail, fetchResult, uploadingFor, expandedRows, selectedMonth
+- Computed: totalAmount, receiptCount, missingReceiptCount
+- Toont enkel transacties met type=reimbursable + werkorganisatie (gefilterd door backend)
+
 ### settings.ts
-- Splitwise API key koppelen, organizations/categories/rules CRUD
+- Werkorganisatie selectie (work_organization_id), Splitwise API key koppelen, organizations/categories/rules CRUD
 
 ### splitwise.ts
 - Signals: expenses, balances, loading, configured, error

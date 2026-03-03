@@ -1,13 +1,13 @@
 import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { WorkExpense, ExpenseReceipt } from '../../models';
 
 @Component({
   selector: 'app-expenses',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './expenses.html',
   styleUrl: './expenses.scss',
 })
@@ -15,6 +15,7 @@ export class Expenses implements OnInit {
   transactions = signal<WorkExpense[]>([]);
   loading = signal(true);
   gmailConnected = signal(false);
+  workOrgConfigured = signal(true); // default true to avoid flash
   fetchingGmail = signal(false);
   fetchResult = signal<{ fetched: number; linked: number; unmatched: string[] } | null>(null);
   uploadingFor = signal<number | null>(null);
@@ -23,15 +24,14 @@ export class Expenses implements OnInit {
   // Month selector — default to current month
   selectedMonth = signal(this.currentMonth());
 
-  workExpenses = computed(() => this.transactions().filter(t => t.is_work_expense));
   totalAmount = computed(() =>
-    this.workExpenses().reduce((sum, t) => sum + Math.abs(t.amount), 0)
+    this.transactions().reduce((sum, t) => sum + Math.abs(t.amount), 0)
   );
   receiptCount = computed(() =>
-    this.workExpenses().reduce((sum, t) => sum + (t.receipts?.length ?? 0), 0)
+    this.transactions().reduce((sum, t) => sum + (t.receipts?.length ?? 0), 0)
   );
   missingReceiptCount = computed(() =>
-    this.workExpenses().filter(t => !t.receipts?.length).length
+    this.transactions().filter(t => !t.receipts?.length).length
   );
 
   constructor(private api: ApiService, private route: ActivatedRoute) {}
@@ -52,6 +52,7 @@ export class Expenses implements OnInit {
       next: data => {
         this.transactions.set(data.transactions);
         this.gmailConnected.set(data.gmail_connected);
+        this.workOrgConfigured.set(data.work_org_configured ?? true);
         this.loading.set(false);
       },
       error: () => this.loading.set(false),
@@ -62,20 +63,6 @@ export class Expenses implements OnInit {
     this.fetchResult.set(null);
     this.expandedRows.set(new Set());
     this.load();
-  }
-
-  toggleWorkExpense(tx: WorkExpense) {
-    this.api.toggleWorkExpense(tx.id).subscribe(res => {
-      this.transactions.update(txs =>
-        txs.map(t => t.id === tx.id ? { ...t, is_work_expense: res.is_work_expense as 1 } : t)
-      );
-      // Auto-expand row when marked as work expense
-      if (res.is_work_expense) {
-        const set = new Set(this.expandedRows());
-        set.add(tx.id);
-        this.expandedRows.set(set);
-      }
-    });
   }
 
   toggleExpand(txId: number) {
@@ -150,6 +137,10 @@ export class Expenses implements OnInit {
 
   exportPdf() {
     window.open(this.api.getExpensePdfUrl(this.selectedMonth()), '_blank');
+  }
+
+  getReceiptUrl(txId: number, receiptId: number): string {
+    return this.api.getReceiptUrl(txId, receiptId);
   }
 
   // ─── Formatting helpers ──────────────────────────────────────────────────

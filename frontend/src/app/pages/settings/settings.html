@@ -3,6 +3,25 @@
     <h1>Instellingen</h1>
   </div>
 
+  <!-- Werkorganisatie -->
+  <section class="settings-section card">
+    <h2>🏢 Werkorganisatie (voor onkostennota)</h2>
+    <p class="section-desc text-muted">Transacties van type "terugbetaalbaar" met deze organisatie verschijnen op de onkostennota-pagina.</p>
+    <div class="form-group">
+      <div class="input-row">
+        <select [ngModel]="workOrganizationId()" (ngModelChange)="workOrganizationId.set($event)">
+          <option [ngValue]="null">-- Geen (uitgeschakeld) --</option>
+          @for (org of organizations(); track org.id) {
+            <option [ngValue]="org.id">{{ org.name }}</option>
+          }
+        </select>
+        <button class="btn-primary" (click)="saveWorkOrganization()">
+          Opslaan
+        </button>
+      </div>
+    </div>
+  </section>
+
   <!-- Splitwise -->
   <section class="settings-section card">
     <h2>🤝 Splitwise koppeling</h2>

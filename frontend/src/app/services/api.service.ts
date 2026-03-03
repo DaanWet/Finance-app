@@ -152,10 +152,6 @@ export class ApiService {
     return this.http.get<ExpensesPageData>(`${BASE}/expenses`, { params: { month } });
   }
 
-  toggleWorkExpense(id: number): Observable<{ id: number; is_work_expense: number }> {
-    return this.http.put<{ id: number; is_work_expense: number }>(`${BASE}/expenses/${id}/toggle`, {});
-  }
-
   uploadReceipt(txId: number, file: File): Observable<ExpenseReceipt> {
     const fd = new FormData();
     fd.append('file', file);
@@ -164,6 +160,10 @@ export class ApiService {
 
   deleteReceipt(txId: number, receiptId: number): Observable<void> {
     return this.http.delete<void>(`${BASE}/expenses/${txId}/receipt/${receiptId}`);
+  }
+
+  getReceiptUrl(txId: number, receiptId: number): string {
+    return `${BASE}/expenses/${txId}/receipt/${receiptId}`;
   }
 
   getGmailStatus(): Observable<{ connected: boolean }> {
