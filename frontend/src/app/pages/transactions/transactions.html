@@ -107,7 +107,7 @@
               <td class="text-muted cell-date">{{ formatDate(tx.date) }}</td>
               <td>
                 {{ tx.description }}
-                @if (tx.splitwise_expense_id && splitwiseExpenseMap().get(tx.splitwise_expense_id)) {
+                @if (tx.splitwise_expense_id && getSplitwiseExpense(tx.splitwise_expense_id)) {
                   <button class="badge badge-splitwise badge-btn" (click)="openSplitwiseDetail(tx, $event)" title="Bekijk Splitwise verdeling">🤝 Splitwise</button>
                 } @else if (tx.splitwise_expense_id) {
                   <span class="badge badge-splitwise">🤝 Splitwise</span>
@@ -145,7 +145,7 @@
                 }
               </td>
               <td class="cell-amount" style="text-align:right" [class.amount-positive]="tx.amount >= 0" [class.amount-negative]="tx.amount < 0">
-                @if (tx.splitwise_expense_id && splitwiseExpenseMap().get(tx.splitwise_expense_id); as sw) {
+                @if (getSplitwiseExpense(tx.splitwise_expense_id); as sw) {
                   {{ tx.amount >= 0 ? '+' : '-' }}{{ formatEur(sw.my_owed_share) }}
                   <small class="text-muted split-total" title="Totaal betaald">/ {{ formatEur(tx.amount) }}</small>
                 } @else {
@@ -295,10 +295,10 @@
         <div class="form-group">
           <label>Type</label>
           <div class="type-selector">
-            <button class="type-btn" [class]="form.type === 'personal' ? 'active-personal' : ''" (click)="form.type = 'personal'">💳 Persoonlijk</button>
+            <button class="type-btn" [class]="form.type === 'personal' ? 'active-personal' : ''" (click)="form.type = 'personal'; form.organization_id = null">💳 Persoonlijk</button>
             <button class="type-btn" [class]="form.type === 'reimbursable' ? 'active-reimbursable' : ''" (click)="form.type = 'reimbursable'">↩️ Terugbetaalbaar</button>
-            <button class="type-btn" [class]="form.type === 'income' ? 'active-income' : ''" (click)="form.type = 'income'">💚 Inkomst</button>
-            <button class="type-btn" [class]="form.type === 'savings' ? 'active-savings' : ''" (click)="form.type = 'savings'">🏦 Sparen</button>
+            <button class="type-btn" [class]="form.type === 'income' ? 'active-income' : ''" (click)="form.type = 'income'; form.organization_id = null">💚 Inkomst</button>
+            <button class="type-btn" [class]="form.type === 'savings' ? 'active-savings' : ''" (click)="form.type = 'savings'; form.organization_id = null">🏦 Sparen</button>
           </div>
         </div>
 
@@ -341,6 +341,27 @@
                 <option [ngValue]="org.id">{{ org.name }}</option>
               }
             </select>
+          </div>
+        }
+
+        @if (editingTx()?.counterparty_name || editingTx()?.counterparty_account) {
+          <div class="form-group">
+            <label>Tegenpartij</label>
+            <div class="readonly-field">
+              @if (editingTx()?.counterparty_name) {
+                <div class="counterparty-name">{{ editingTx()!.counterparty_name }}</div>
+              }
+              @if (editingTx()?.counterparty_account) {
+                <div class="counterparty-iban">{{ editingTx()!.counterparty_account }}</div>
+              }
+            </div>
+          </div>
+        }
+
+        @if (editingTx()?.original_description && editingTx()!.original_description !== editingTx()!.description) {
+          <div class="form-group">
+            <label>Originele mededeling</label>
+            <div class="readonly-field original-description">{{ editingTx()!.original_description }}</div>
           </div>
         }
 

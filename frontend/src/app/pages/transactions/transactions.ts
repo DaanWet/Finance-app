@@ -49,6 +49,12 @@ export class Transactions implements OnInit {
     new Map(this.splitwiseExpenses().map(e => [e.id.toString(), e]))
   );
 
+  getSplitwiseExpense(id: string | number | null | undefined): SplitwiseExpense | undefined {
+    if (id == null) return undefined;
+    const normalized = String(parseInt(String(id), 10));
+    return this.splitwiseExpenseMap().get(normalized) ?? this.splitwiseExpenseMap().get(String(id));
+  }
+
   filteredSplitwise = computed(() => {
     const all = this.splitwiseExpenses();
     const search = this.splitwiseSearch().toLowerCase();
@@ -168,7 +174,9 @@ export class Transactions implements OnInit {
       category_id: tx.category_id,
       organization_id: tx.organization_id,
       notes: tx.notes ?? '',
-      splitwise_expense_id: tx.splitwise_expense_id ?? null,
+      splitwise_expense_id: tx.splitwise_expense_id != null
+        ? String(parseInt(String(tx.splitwise_expense_id), 10))
+        : null,
     };
     this.splitwiseSearch.set('');
     this.splitwiseShowAll.set(false);
@@ -183,10 +191,7 @@ export class Transactions implements OnInit {
 
   openSplitwiseDetail(tx: Transaction, event: Event) {
     event.stopPropagation();
-    const exp = tx.splitwise_expense_id
-      ? this.splitwiseExpenseMap().get(tx.splitwise_expense_id) ?? null
-      : null;
-    this.splitwiseDetail.set(exp);
+    this.splitwiseDetail.set(this.getSplitwiseExpense(tx.splitwise_expense_id) ?? null);
   }
 
   participantName(p: { user_id: number; first_name: string | null; last_name: string | null }): string {
@@ -315,7 +320,7 @@ export class Transactions implements OnInit {
     if (data.amount !== undefined) data.amount = Number(data.amount);
 
     if (data.splitwise_expense_id) {
-      const sw = this.splitwiseExpenses().find(e => String(e.id) === data.splitwise_expense_id);
+      const sw = this.getSplitwiseExpense(data.splitwise_expense_id);
       data.splitwise_owed_share = sw ? sw.my_owed_share : null;
     } else {
       data.splitwise_owed_share = null;

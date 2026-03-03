@@ -55,6 +55,8 @@ export function runMigrations(db: Database.Database): void {
   try { db.exec(`ALTER TABLE transactions ADD COLUMN category_confirmed INTEGER NOT NULL DEFAULT 1`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN is_work_expense INTEGER NOT NULL DEFAULT 0`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN splitwise_owed_share REAL`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN counterparty_name TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN original_description TEXT`); } catch {}
 
   // Migrate CHECK constraint to include 'savings' type
   const txDef = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='transactions'").get() as { sql: string } | undefined)?.sql ?? '';
@@ -123,6 +125,13 @@ export function runMigrations(db: Database.Database): void {
       gmail_message_id TEXT,
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
+  `);
+
+  // Fix splitwise_expense_id stored as REAL (e.g. "4089538700.0" instead of "4089538700")
+  db.exec(`
+    UPDATE transactions
+    SET splitwise_expense_id = CAST(CAST(splitwise_expense_id AS INTEGER) AS TEXT)
+    WHERE splitwise_expense_id IS NOT NULL AND splitwise_expense_id LIKE '%.%'
   `);
 
   // Ensure new categories exist for existing databases

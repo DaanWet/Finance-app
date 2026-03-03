@@ -128,6 +128,31 @@ tr:hover .actions { opacity: 1; }
   display: block;
 }
 
+.readonly-field {
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-secondary, #f3f4f6);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.counterparty-name {
+  font-weight: 500;
+  color: var(--text-primary, #374151);
+}
+
+.counterparty-iban {
+  font-family: monospace;
+  font-size: 0.8rem;
+  margin-top: 2px;
+}
+
+.original-description {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+}
+
 .badge-ai-pending {
   margin-left: 4px;
   font-size: 0.7rem;

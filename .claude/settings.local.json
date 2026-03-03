@@ -5,7 +5,8 @@
       "Bash(npx tsc:*)",
       "Skill(claude-developer-platform)",
       "Skill(claude-developer-platform:*)",
-      "Bash(npx ng build)"
+      "Bash(npx ng build)",
+      "Bash(git diff --cached --no-stat)"
     ]
   }
 }

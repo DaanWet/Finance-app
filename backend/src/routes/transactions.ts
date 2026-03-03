@@ -111,9 +111,10 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
     const tx = txs[ai.index];
     if (!tx) continue;
 
+    const swId = ai.splitwise_expense_id != null ? String(parseInt(String(ai.splitwise_expense_id), 10)) : null;
     let splitwise_owed_share: number | null = null;
-    if (ai.splitwise_expense_id) {
-      const swExpense = splitwiseExpenses.find(e => String(e.id) === ai.splitwise_expense_id);
+    if (swId) {
+      const swExpense = splitwiseExpenses.find(e => String(e.id) === swId);
       if (swExpense) splitwise_owed_share = swExpense.my_owed_share;
     }
 
@@ -122,7 +123,7 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
       type: ai.type,
       category_id: ai.category_id,
       organization_id: ai.organization_id,
-      splitwise_expense_id: ai.splitwise_expense_id,
+      splitwise_expense_id: swId,
       splitwise_owed_share,
       notes: ai.notes,
       category_confirmed: 0,
@@ -211,9 +212,10 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
   }
 
   const ai = aiResults[0];
+  const swId = ai.splitwise_expense_id != null ? String(parseInt(String(ai.splitwise_expense_id), 10)) : null;
   let splitwise_owed_share: number | null = null;
-  if (ai.splitwise_expense_id) {
-    const swExpense = splitwiseExpenses.find(e => String(e.id) === ai.splitwise_expense_id);
+  if (swId) {
+    const swExpense = splitwiseExpenses.find(e => String(e.id) === swId);
     if (swExpense) splitwise_owed_share = swExpense.my_owed_share;
   }
   updateTransaction(db, id, {
@@ -221,7 +223,7 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
     type: ai.type,
     category_id: ai.category_id,
     organization_id: ai.organization_id,
-    splitwise_expense_id: ai.splitwise_expense_id,
+    splitwise_expense_id: swId,
     splitwise_owed_share,
     notes: ai.notes,
     category_confirmed: 0,

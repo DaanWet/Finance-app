@@ -24,15 +24,25 @@ export function getOutstandingReimbursements(db: Database.Database): Reimburseme
   `).all() as { id: number | null; name: string; color: string; total: number; count: number }[];
 
   return orgs.map(org => {
-    const transactions = db.prepare(`
-      SELECT t.*, c.name AS category_name, c.color AS category_color
-      FROM transactions t
-      LEFT JOIN categories c ON t.category_id = c.id
-      WHERE t.organization_id IS ?
-        AND t.type = 'reimbursable'
-        AND t.reimbursed_at IS NULL
-      ORDER BY t.date DESC
-    `).all(org.id) as Transaction[];
+    const transactions = org.id === null
+      ? db.prepare(`
+          SELECT t.*, c.name AS category_name, c.color AS category_color
+          FROM transactions t
+          LEFT JOIN categories c ON t.category_id = c.id
+          WHERE t.organization_id IS NULL
+            AND t.type = 'reimbursable'
+            AND t.reimbursed_at IS NULL
+          ORDER BY t.date DESC
+        `).all() as Transaction[]
+      : db.prepare(`
+          SELECT t.*, c.name AS category_name, c.color AS category_color
+          FROM transactions t
+          LEFT JOIN categories c ON t.category_id = c.id
+          WHERE t.organization_id = ?
+            AND t.type = 'reimbursable'
+            AND t.reimbursed_at IS NULL
+          ORDER BY t.date DESC
+        `).all(org.id) as Transaction[];
 
     return {
       organization_id: org.id,
@@ -62,16 +72,27 @@ export function getReceivedReimbursements(db: Database.Database, months?: number
   `).all() as { id: number | null; name: string; color: string; total: number; count: number }[];
 
   return orgs.map(org => {
-    const transactions = db.prepare(`
-      SELECT t.*, c.name AS category_name, c.color AS category_color
-      FROM transactions t
-      LEFT JOIN categories c ON t.category_id = c.id
-      WHERE t.organization_id IS ?
-        AND t.type = 'reimbursable'
-        AND t.reimbursed_at IS NOT NULL
-        ${dateFilter}
-      ORDER BY t.reimbursed_at DESC
-    `).all(org.id) as Transaction[];
+    const transactions = org.id === null
+      ? db.prepare(`
+          SELECT t.*, c.name AS category_name, c.color AS category_color
+          FROM transactions t
+          LEFT JOIN categories c ON t.category_id = c.id
+          WHERE t.organization_id IS NULL
+            AND t.type = 'reimbursable'
+            AND t.reimbursed_at IS NOT NULL
+            ${dateFilter}
+          ORDER BY t.reimbursed_at DESC
+        `).all() as Transaction[]
+      : db.prepare(`
+          SELECT t.*, c.name AS category_name, c.color AS category_color
+          FROM transactions t
+          LEFT JOIN categories c ON t.category_id = c.id
+          WHERE t.organization_id = ?
+            AND t.type = 'reimbursable'
+            AND t.reimbursed_at IS NOT NULL
+            ${dateFilter}
+          ORDER BY t.reimbursed_at DESC
+        `).all(org.id) as Transaction[];
 
     return {
       organization_id: org.id,

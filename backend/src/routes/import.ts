@@ -14,6 +14,7 @@ interface ParsedIngRow {
   amount: number;
   ing_transaction_id: string;
   counterparty_account: string | null;
+  counterparty_name: string | null;
   raw: Record<string, string>;
 }
 
@@ -45,6 +46,7 @@ function parseIngCsv(content: string): ParsedIngRow[] {
     let amount: number;
     let ing_transaction_id: string;
     let counterparty_account: string | null = null;
+    let counterparty_name: string | null = null;
 
     if (isNewFormat) {
       dateRaw = row['Boekingsdatum'] ?? '';
@@ -56,6 +58,7 @@ function parseIngCsv(content: string): ParsedIngRow[] {
 
       description = row['Bericht'] || row['Detail van de omzet'] || row['Omschrijving'] || 'Onbekend';
       counterparty_account = row['Rekening tegenpartij'] || null;
+      counterparty_name = row['Omschrijving'] || null;
 
       // Gebruik Omzetnummer als stabiel ID indien aanwezig
       const omzetnummer = row['Omzetnummer'] ?? '';
@@ -81,6 +84,7 @@ function parseIngCsv(content: string): ParsedIngRow[] {
 
       description = memoRaw || nameRaw || 'Onbekend';
       counterparty_account = row['Tegenrekening'] || null;
+      counterparty_name = nameRaw || null;
 
       const hashInput = `${dateRaw}|${amount}|${description}`;
       ing_transaction_id = crypto.createHash('sha256').update(hashInput).digest('hex').substring(0, 16);
@@ -98,7 +102,7 @@ function parseIngCsv(content: string): ParsedIngRow[] {
       isoDate = `${dashParts[2]}-${dashParts[1].padStart(2, '0')}-${dashParts[0].padStart(2, '0')}`;
     }
 
-    rows.push({ date: isoDate, description, amount, ing_transaction_id, counterparty_account, raw: row });
+    rows.push({ date: isoDate, description, amount, ing_transaction_id, counterparty_account, counterparty_name, raw: row });
   }
 
   return rows;
@@ -288,7 +292,9 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
         organization_id = ai.organization_id;
         category_id = ai.category_id;
         if (category_id !== null) category_confirmed = 0;
-        splitwise_expense_id = ai.splitwise_expense_id;
+        splitwise_expense_id = ai.splitwise_expense_id != null
+          ? String(parseInt(String(ai.splitwise_expense_id), 10))
+          : null;
         notes = ai.notes;
         if (splitwise_expense_id) {
           const swExpense = splitwiseExpenses.find(e => String(e.id) === splitwise_expense_id);
@@ -322,6 +328,8 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
       splitwise_owed_share,
       notes,
       counterparty_account: row.counterparty_account,
+      counterparty_name: row.counterparty_name,
+      original_description: row.description,
       category_confirmed,
     });
 

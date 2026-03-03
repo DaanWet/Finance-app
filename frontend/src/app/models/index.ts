@@ -41,6 +41,9 @@ export interface Transaction {
   splitwise_owed_share: number | null;
   payment_method: string | null;
   notes: string | null;
+  counterparty_account: string | null;
+  counterparty_name: string | null;
+  original_description: string | null;
   category_confirmed: number;
   is_work_expense: number;
   created_at: string;

@@ -16,6 +16,8 @@ export interface Transaction {
   payment_method: string | null;
   notes: string | null;
   counterparty_account: string | null;
+  counterparty_name: string | null;
+  original_description: string | null;
   category_confirmed: number;
   created_at: string;
   updated_at: string;
@@ -108,6 +110,8 @@ export interface CreateTransactionInput {
   payment_method?: string | null;
   notes?: string | null;
   counterparty_account?: string | null;
+  counterparty_name?: string | null;
+  original_description?: string | null;
   category_confirmed?: number;
 }
 
@@ -115,8 +119,8 @@ export function createTransaction(db: Database.Database, input: CreateTransactio
   const result = db.prepare(`
     INSERT INTO transactions (description, amount, date, type, category_id, organization_id,
       ing_transaction_id, splitwise_expense_id, splitwise_owed_share, payment_method, notes,
-      counterparty_account, category_confirmed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      counterparty_account, counterparty_name, original_description, category_confirmed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.description, input.amount, input.date, input.type,
     input.category_id ?? null, input.organization_id ?? null,
@@ -124,6 +128,8 @@ export function createTransaction(db: Database.Database, input: CreateTransactio
     input.splitwise_owed_share ?? null,
     input.payment_method ?? null, input.notes ?? null,
     input.counterparty_account ?? null,
+    input.counterparty_name ?? null,
+    input.original_description ?? null,
     input.category_confirmed ?? 1
   );
   return getTransactionById(db, result.lastInsertRowid as number)!;

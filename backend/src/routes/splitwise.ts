@@ -46,7 +46,7 @@ router.get('/expenses', async (req: Request, res: Response) => {
   const userId = getCurrentUserId();
   if (!userId) return res.status(400).json({ error: 'Splitwise user not connected. Call /connect first.' });
 
-  const limit = req.query['limit'] ?? 100;
+  const limit = req.query['limit'] ?? 200;
   const offset = req.query['offset'] ?? 0;
   const datedAfter = req.query['dated_after'] ?? '';
 
@@ -96,7 +96,7 @@ router.get('/expenses', async (req: Request, res: Response) => {
           })),
         };
       })
-      .filter(e => e.my_owed_share > 0);
+      .filter(e => e.my_paid_share > 0 || e.my_owed_share > 0);
 
     res.json(processed);
   } catch (e: unknown) {
