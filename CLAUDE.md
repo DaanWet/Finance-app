@@ -16,7 +16,7 @@ backend/src/
   routes/           — import, transactions, reimbursements, dashboard,
                       organizations, categories, settings, splitwise,
                       classificationRules, expenses
-  queries/          — transactions.ts, reimbursements.ts, dashboard.ts
+  queries/          — transactions.ts, reimbursements.ts, reimbursementLinks.ts, dashboard.ts
   services/
     aiAnalysis.ts   — Claude API integratie
     gmailService.ts — Google OAuth + NMBS ticket parsing
@@ -36,6 +36,7 @@ frontend/src/app/
 - **categories**: id, name, color, icon (emoji)
 - **organizations**: id, name, color
 - **settings**: key-value store (splitwise_api_key, splitwise_user_id, work_organization_id, google_refresh_token, google_access_token)
+- **reimbursement_links**: id, income_transaction_id (FK → transactions), expense_transaction_id (FK → transactions), amount, created_at; UNIQUE(income_transaction_id, expense_transaction_id)
 - **classification_rules**: pattern, type, organization_id, category_id
 
 ## CSV import (ING)
@@ -56,8 +57,16 @@ frontend/src/app/
 - Splitwise matching: bedrag binnen 5%, datum binnen 7 dagen
 
 ## Voorschot-detectie
-- Within-batch: AI geeft `advance_repaid_by_index` → reimbursed_at = terugbetalingsdatum
-- DB-niveau: positieve tx + zelfde counterparty_account + bedrag <10% verschil → auto-reimbursed
+- Within-batch: AI geeft `advance_repaid_by_index` → reimbursed_at = terugbetalingsdatum + reimbursement_link
+- DB-niveau: positieve tx + zelfde counterparty_account + bedrag <10% verschil → auto-reimbursed + reimbursement_link
+
+## Reimbursement linking
+- Eén inkomst kan meerdere terugbetaalbare uitgaven dekken via `reimbursement_links`
+- `amount` in link legt vast hoeveel van de uitgave gedekt is (voor partiële terugbetalingen / persoonlijke aftrek)
+- Bij link aanmaken: `reimbursed_at` wordt automatisch gezet op de expense
+- Bij ontkoppelen: `reimbursed_at` wordt gecleard als expense geen andere links meer heeft
+- Bij verwijderen van transactie: cleanup via `cleanupLinksForDeletedTransaction()` in applicatiecode
+- Bidirectioneel: vanuit inkomst → expenses selecteren (transactions page), vanuit expense → inkomst selecteren (reimbursements page)
 
 ## Splitwise
 - API key + user_id in settings tabel
@@ -100,7 +109,12 @@ frontend/src/app/
 |--------|----------|---------|
 | GET | `/outstanding` | Onterugbetaald, gegroepeerd per org |
 | GET | `/received` | Terugbetaald (`?months=N`, default 3) |
-| POST | `/:id/mark-received` | Body: `{ note?: string }` |
+| POST | `/:id/mark-received` | Body: `{ note?: string }` — handmatig markeren zonder link |
+| POST | `/link` | Koppel inkomst aan expenses. Body: `{ income_transaction_id, expenses: [{expense_transaction_id, amount}] }` |
+| DELETE | `/link/:incomeId/:expenseId` | Ontkoppel één expense van inkomst |
+| GET | `/links/:transactionId` | Links voor een transactie (retourneert `{ as_income, as_expense }`) |
+| GET | `/income-candidates` | Inkomsten beschikbaar voor koppeling `?organization_id=N` |
+| GET | `/expense-candidates` | Openstaande expenses beschikbaar voor koppeling `?organization_id=N` |
 
 ### Dashboard (`/api/dashboard`)
 - `GET /?start=YYYY-MM-DD&end=YYYY-MM-DD`
@@ -109,7 +123,7 @@ frontend/src/app/
 ### Expenses (`/api/expenses`)
 | Method | Endpoint | Functie |
 |--------|----------|---------|
-| GET | `/` | Werkkosten voor een maand (`?month=YYYY-MM`), gefilterd op work_organization_id |
+| GET | `/` | Alle werkkosten (open + terugbetaald), gefilterd op work_organization_id |
 | POST | `/:id/receipt` | Upload bon (multipart, max 10MB) |
 | DELETE | `/:id/receipt/:receiptId` | Bon verwijderen |
 | GET | `/gmail/auth` | Google OAuth redirect |
@@ -146,27 +160,33 @@ CsvPreviewRow { index, date, description, amount, counterparty_account, ing_tran
 ImportResult { imported, skipped, total, ai_analyzed?, transactions[] }
 ExpenseReceipt { id, transaction_id, filename, content_type, gmail_message_id, created_at }
 WorkExpense extends Transaction { receipts: ExpenseReceipt[] }
-ExpensesPageData { month, transactions: WorkExpense[], gmail_connected, work_org_configured? }
+ExpensesPageData { transactions: WorkExpense[], reimbursed: WorkExpense[], gmail_connected, work_org_configured? }
 GmailFetchResult { fetched, linked, unmatched: string[] }
+ReimbursementLink { id, income_transaction_id, expense_transaction_id, amount, created_at, description?, transaction_amount?, date?, organization_name? }
+IncomeCandidateTransaction { id, description, amount, date, counterparty_name, linked_total }
+ExpenseCandidateTransaction { id, description, amount, date, organization_name }
 ```
 
 ## Frontend pagina's (signals-gebaseerd)
 
 ### transactions.ts
-- Signals: transactions, organizations, categories, loading, showModal, editingTx, importResult, previewRows, selectedIndices
+- Signals: transactions, organizations, categories, loading, showModal, editingTx, importResult, previewRows, selectedIndices, editLinks, expenseCandidates, showAddExpenseLink, linkingExpenseId, linkingAmount, linkSaving
 - Computed: unconfirmedCount, selectableCount, duplicateCount, isAllSelected
 - Filters: filterType, filterCategory, filterOrg, filterSearch, filterDateFrom, filterDateTo
+- Edit modal: voor inkomst-transacties toont "Gekoppelde terugbetalingen" sectie met link-beheer; voor reimbursable toont "Gekoppeld aan inkomst" read-only
 
 ### dashboard.ts
 - Signals: summary, balances, splitwiseTotal, loading, period ('month'|'last_month'|'year')
 
 ### reimbursements.ts
-- Signals: outstanding, received, loading, markingId, confirmId, confirmNote
+- Signals: outstanding, received, loading, markingId, confirmId, confirmNote, linkingExpenseId, linkingAmount, incomeCandidates, selectedIncomeId, linkSaving, receivedLinks, expandedLinkId
+- Linking flow: per expense een "Koppel aan inkomst" knop → selecteer inkomst + bedrag → bevestig
 
 ### expenses.ts
-- Signals: transactions, loading, gmailConnected, workOrgConfigured, fetchingGmail, fetchResult, uploadingFor, expandedRows, selectedMonth
+- Signals: transactions, reimbursedTransactions, loading, gmailConnected, workOrgConfigured, fetchingGmail, fetchResult, uploadingFor, expandedRows, showReimbursed, selectedMonth
 - Computed: totalAmount, receiptCount, missingReceiptCount
-- Toont enkel transacties met type=reimbursable + werkorganisatie (gefilterd door backend)
+- Toont alle open werkuitgaven (reimbursed_at IS NULL), terugbetaalde toegeklapt onderaan
+- selectedMonth enkel voor Excel/PDF-export en Gmail-fetch, niet voor filteren van lijst
 
 ### settings.ts
 - Werkorganisatie selectie (work_organization_id), Splitwise API key koppelen, organizations/categories/rules CRUD
