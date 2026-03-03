@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { Transaction } from './transactions';
 
 export interface ReimbursementGroup {
-  organization_id: number;
+  organization_id: number | null;
   organization_name: string;
   organization_color: string;
   total: number;
@@ -12,23 +12,23 @@ export interface ReimbursementGroup {
 
 export function getOutstandingReimbursements(db: Database.Database): ReimbursementGroup[] {
   const orgs = db.prepare(`
-    SELECT o.id, o.name, o.color,
+    SELECT t.organization_id AS id, COALESCE(o.name, 'Zonder organisatie') AS name, COALESCE(o.color, '#9e9e9e') AS color,
            SUM(ABS(t.amount)) AS total,
            COUNT(*) AS count
     FROM transactions t
-    JOIN organizations o ON t.organization_id = o.id
+    LEFT JOIN organizations o ON t.organization_id = o.id
     WHERE t.type = 'reimbursable'
       AND t.reimbursed_at IS NULL
-    GROUP BY o.id
+    GROUP BY t.organization_id
     ORDER BY total DESC
-  `).all() as { id: number; name: string; color: string; total: number; count: number }[];
+  `).all() as { id: number | null; name: string; color: string; total: number; count: number }[];
 
   return orgs.map(org => {
     const transactions = db.prepare(`
       SELECT t.*, c.name AS category_name, c.color AS category_color
       FROM transactions t
       LEFT JOIN categories c ON t.category_id = c.id
-      WHERE t.organization_id = ?
+      WHERE t.organization_id IS ?
         AND t.type = 'reimbursable'
         AND t.reimbursed_at IS NULL
       ORDER BY t.date DESC
@@ -45,29 +45,31 @@ export function getOutstandingReimbursements(db: Database.Database): Reimburseme
   });
 }
 
-export function getReceivedReimbursements(db: Database.Database): ReimbursementGroup[] {
+export function getReceivedReimbursements(db: Database.Database, months?: number): ReimbursementGroup[] {
+  const dateFilter = months ? `AND t.reimbursed_at >= date('now', '-${months} months')` : '';
+
   const orgs = db.prepare(`
-    SELECT o.id, o.name, o.color,
+    SELECT t.organization_id AS id, COALESCE(o.name, 'Zonder organisatie') AS name, COALESCE(o.color, '#9e9e9e') AS color,
            SUM(ABS(t.amount)) AS total,
            COUNT(*) AS count
     FROM transactions t
-    JOIN organizations o ON t.organization_id = o.id
+    LEFT JOIN organizations o ON t.organization_id = o.id
     WHERE t.type = 'reimbursable'
       AND t.reimbursed_at IS NOT NULL
-      AND t.reimbursed_at >= date('now', '-3 months')
-    GROUP BY o.id
+      ${dateFilter}
+    GROUP BY t.organization_id
     ORDER BY total DESC
-  `).all() as { id: number; name: string; color: string; total: number; count: number }[];
+  `).all() as { id: number | null; name: string; color: string; total: number; count: number }[];
 
   return orgs.map(org => {
     const transactions = db.prepare(`
       SELECT t.*, c.name AS category_name, c.color AS category_color
       FROM transactions t
       LEFT JOIN categories c ON t.category_id = c.id
-      WHERE t.organization_id = ?
+      WHERE t.organization_id IS ?
         AND t.type = 'reimbursable'
         AND t.reimbursed_at IS NOT NULL
-        AND t.reimbursed_at >= date('now', '-3 months')
+        ${dateFilter}
       ORDER BY t.reimbursed_at DESC
     `).all(org.id) as Transaction[];
 

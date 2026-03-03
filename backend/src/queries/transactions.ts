@@ -5,15 +5,18 @@ export interface Transaction {
   description: string;
   amount: number;
   date: string;
-  type: 'personal' | 'reimbursable' | 'income';
+  type: 'personal' | 'reimbursable' | 'income' | 'savings';
   category_id: number | null;
   organization_id: number | null;
   reimbursed_at: string | null;
   reimbursed_note: string | null;
   ing_transaction_id: string | null;
   splitwise_expense_id: string | null;
+  splitwise_owed_share: number | null;
   payment_method: string | null;
   notes: string | null;
+  counterparty_account: string | null;
+  category_confirmed: number;
   created_at: string;
   updated_at: string;
   // joined
@@ -96,25 +99,32 @@ export interface CreateTransactionInput {
   description: string;
   amount: number;
   date: string;
-  type: 'personal' | 'reimbursable' | 'income';
+  type: 'personal' | 'reimbursable' | 'income' | 'savings';
   category_id?: number | null;
   organization_id?: number | null;
   ing_transaction_id?: string | null;
   splitwise_expense_id?: string | null;
+  splitwise_owed_share?: number | null;
   payment_method?: string | null;
   notes?: string | null;
+  counterparty_account?: string | null;
+  category_confirmed?: number;
 }
 
 export function createTransaction(db: Database.Database, input: CreateTransactionInput): Transaction {
   const result = db.prepare(`
     INSERT INTO transactions (description, amount, date, type, category_id, organization_id,
-      ing_transaction_id, splitwise_expense_id, payment_method, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ing_transaction_id, splitwise_expense_id, splitwise_owed_share, payment_method, notes,
+      counterparty_account, category_confirmed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.description, input.amount, input.date, input.type,
     input.category_id ?? null, input.organization_id ?? null,
     input.ing_transaction_id ?? null, input.splitwise_expense_id ?? null,
-    input.payment_method ?? null, input.notes ?? null
+    input.splitwise_owed_share ?? null,
+    input.payment_method ?? null, input.notes ?? null,
+    input.counterparty_account ?? null,
+    input.category_confirmed ?? 1
   );
   return getTransactionById(db, result.lastInsertRowid as number)!;
 }
@@ -129,7 +139,8 @@ export function updateTransaction(db: Database.Database, id: number, input: Upda
     UPDATE transactions SET
       description = ?, amount = ?, date = ?, type = ?,
       category_id = ?, organization_id = ?,
-      splitwise_expense_id = ?, payment_method = ?, notes = ?,
+      splitwise_expense_id = ?, splitwise_owed_share = ?, payment_method = ?, notes = ?,
+      category_confirmed = ?,
       updated_at = datetime('now')
     WHERE id = ?
   `).run(
@@ -140,8 +151,10 @@ export function updateTransaction(db: Database.Database, id: number, input: Upda
     input.category_id !== undefined ? input.category_id : existing.category_id,
     input.organization_id !== undefined ? input.organization_id : existing.organization_id,
     input.splitwise_expense_id !== undefined ? input.splitwise_expense_id : existing.splitwise_expense_id,
+    input.splitwise_owed_share !== undefined ? input.splitwise_owed_share : existing.splitwise_owed_share,
     input.payment_method !== undefined ? input.payment_method : existing.payment_method,
     input.notes !== undefined ? input.notes : existing.notes,
+    input.category_confirmed !== undefined ? input.category_confirmed : existing.category_confirmed,
     id
   );
   return getTransactionById(db, id);
@@ -150,4 +163,43 @@ export function updateTransaction(db: Database.Database, id: number, input: Upda
 export function deleteTransaction(db: Database.Database, id: number): boolean {
   const result = db.prepare('DELETE FROM transactions WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+export function confirmAllTransactions(db: Database.Database): number {
+  const result = db.prepare(`
+    UPDATE transactions SET category_confirmed = 1, updated_at = datetime('now')
+    WHERE category_confirmed = 0
+  `).run();
+  return result.changes;
+}
+
+export function getTransactionsByIds(db: Database.Database, ids: number[]): Transaction[] {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`
+    SELECT ${SELECT_FIELDS}
+    FROM transactions t
+    LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN organizations o ON t.organization_id = o.id
+    WHERE t.id IN (${placeholders})
+  `).all(...ids) as Transaction[];
+}
+
+export function confirmTransactions(db: Database.Database, ids: number[]): number {
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const result = db.prepare(`
+    UPDATE transactions SET category_confirmed = 1, updated_at = datetime('now')
+    WHERE id IN (${placeholders}) AND category_confirmed = 0
+  `).run(...ids);
+  return result.changes;
+}
+
+export function deleteTransactions(db: Database.Database, ids: number[]): number {
+  if (ids.length === 0) return 0;
+  const placeholders = ids.map(() => '?').join(',');
+  const result = db.prepare(`
+    DELETE FROM transactions WHERE id IN (${placeholders})
+  `).run(...ids);
+  return result.changes;
 }

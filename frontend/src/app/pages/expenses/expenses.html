@@ -1,0 +1,154 @@
+<div class="page">
+  <!-- Header -->
+  <div class="page-header">
+    <h1>Onkostennota</h1>
+    <div class="header-actions">
+      <!-- Month selector -->
+      <input type="month" class="month-input" [ngModel]="selectedMonth()"
+             (ngModelChange)="selectedMonth.set($event); onMonthChange()">
+
+      @if (!gmailConnected()) {
+        <button class="btn-gmail" (click)="connectGmail()" title="Koppel Google-account voor NMBS-tickets">
+          ✉️ Gmail koppelen
+        </button>
+      } @else {
+        <button class="btn-gmail btn-gmail--connected" (click)="fetchGmailTickets()"
+                [disabled]="fetchingGmail()" title="Haal NMBS-treintickets op voor deze maand">
+          @if (fetchingGmail()) { ⏳ Ophalen... } @else { 🚂 Tickets ophalen }
+        </button>
+      }
+
+      <button class="btn-export" (click)="exportExcel()" [disabled]="workExpenses().length === 0"
+              title="Download Excel-onkostennota">
+        📊 Excel
+      </button>
+      <button class="btn-export" (click)="exportPdf()" [disabled]="receiptCount() === 0"
+              title="Download PDF met alle bewijsstukken">
+        📄 PDF bewijzen
+      </button>
+    </div>
+  </div>
+
+  <!-- Gmail fetch result banner -->
+  @if (fetchResult(); as fr) {
+    <div class="fetch-banner" [class.fetch-banner--warning]="fr.unmatched.length > 0">
+      @if (fr.fetched === 0) {
+        📭 Geen nieuwe NMBS-tickets gevonden voor {{ formatMonthLabel(selectedMonth()) }}.
+      } @else {
+        ✅ {{ fr.fetched }} ticket(s) gevonden — {{ fr.linked }} automatisch gekoppeld.
+        @if (fr.unmatched.length > 0) {
+          <span class="unmatched-hint">
+            {{ fr.unmatched.length }} niet gekoppeld (geen passende transactie gevonden als werkuitgave):
+            @for (u of fr.unmatched; track u) { <em>{{ u }}</em> }
+          </span>
+        }
+      }
+      <button class="btn-icon" (click)="fetchResult.set(null)">✕</button>
+    </div>
+  }
+
+  <!-- Summary bar -->
+  @if (workExpenses().length > 0) {
+    <div class="summary-bar card">
+      <div class="summary-stat">
+        <span class="summary-label">Werkuitgaven</span>
+        <span class="summary-value">{{ workExpenses().length }}</span>
+      </div>
+      <div class="summary-stat">
+        <span class="summary-label">Totaal</span>
+        <span class="summary-value amount-negative">{{ formatEur(totalAmount()) }}</span>
+      </div>
+      <div class="summary-stat">
+        <span class="summary-label">Bewijsstukken</span>
+        <span class="summary-value">{{ receiptCount() }}</span>
+      </div>
+      @if (missingReceiptCount() > 0) {
+        <div class="summary-stat summary-stat--warn">
+          <span class="summary-label">Ontbrekend</span>
+          <span class="summary-value">{{ missingReceiptCount() }}</span>
+        </div>
+      }
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="loading">Laden...</div>
+  } @else if (transactions().length === 0) {
+    <div class="empty-state">
+      <div class="empty-icon">🧾</div>
+      <p>Geen transacties gevonden voor {{ formatMonthLabel(selectedMonth()) }}</p>
+      <small class="text-muted">Importeer eerst transacties via de Transacties-pagina.</small>
+    </div>
+  } @else {
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-work" title="Markeer als werkuitgave">🧾</th>
+            <th>Datum</th>
+            <th>Beschrijving</th>
+            <th>Categorie</th>
+            <th style="text-align:right">Bedrag</th>
+            <th>Bewijsstukken</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (tx of transactions(); track tx.id) {
+            <tr [class.row-work]="tx.is_work_expense" [class.row-missing]="tx.is_work_expense && !tx.receipts?.length">
+              <td class="col-work">
+                <button class="toggle-btn" [class.toggle-btn--active]="tx.is_work_expense"
+                        (click)="toggleWorkExpense(tx)"
+                        [title]="tx.is_work_expense ? 'Niet meer als werkuitgave markeren' : 'Markeren als werkuitgave'">
+                  {{ tx.is_work_expense ? '✓' : '○' }}
+                </button>
+              </td>
+              <td class="text-muted">{{ formatDate(tx.date) }}</td>
+              <td>
+                {{ tx.description }}
+                @if (tx.ing_transaction_id) {
+                  <span class="badge" style="background:rgba(59,130,246,0.1);color:#60a5fa;margin-left:4px">🏦</span>
+                }
+              </td>
+              <td>
+                @if (tx.category_name) {
+                  <span [style.color]="tx.category_color">{{ tx.category_icon }} {{ tx.category_name }}</span>
+                } @else {
+                  <span class="text-muted">—</span>
+                }
+              </td>
+              <td style="text-align:right" [class]="tx.amount >= 0 ? 'amount-positive' : 'amount-negative'">
+                {{ tx.amount >= 0 ? '+' : '' }}{{ formatEur(tx.amount) }}
+              </td>
+              <td class="receipts-cell">
+                @if (tx.is_work_expense) {
+                  @if (tx.receipts?.length) {
+                    @for (r of tx.receipts; track r.id) {
+                      <span class="receipt-chip" [title]="r.filename">
+                        {{ receiptIcon(r.content_type) }} {{ r.filename | slice:0:20 }}{{ r.filename.length > 20 ? '…' : '' }}
+                        <button class="receipt-del" (click)="deleteReceipt(tx, r)" title="Verwijder bijlage">✕</button>
+                      </span>
+                    }
+                  } @else {
+                    <span class="missing-badge">Geen bewijs</span>
+                  }
+                }
+              </td>
+              <td class="actions">
+                @if (tx.is_work_expense) {
+                  <label class="upload-btn" [title]="uploadingFor() === tx.id ? 'Bezig...' : 'Bewijsstuk uploaden'">
+                    @if (uploadingFor() === tx.id) { ⏳ } @else { ⬆️ }
+                    <input type="file" accept=".pdf,.jpg,.jpeg,.png"
+                           (change)="onReceiptFileSelected($event, tx.id)"
+                           [disabled]="uploadingFor() !== null"
+                           style="display:none">
+                  </label>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

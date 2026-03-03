@@ -114,12 +114,14 @@ input, select, textarea {
   &.badge-personal { background: rgba(148,163,184,0.15); color: #94a3b8; }
   &.badge-reimbursable { background: rgba(245,158,11,0.15); color: #f59e0b; }
   &.badge-income { background: rgba(16,185,129,0.15); color: #10b981; }
+  &.badge-savings { background: rgba(14,165,233,0.15); color: #0ea5e9; }
   &.badge-splitwise { background: rgba(99,102,241,0.15); color: #818cf8; }
+  &.badge-reimbursed { background: rgba(20,184,166,0.15); color: #14b8a6; }
 }
 
 .page {
   padding: 1.5rem 2rem;
-  max-width: 1200px;
+  max-width: 1400px;
 
   .page-header {
     display: flex;
@@ -248,6 +250,7 @@ table {
     &.active-personal { border-color: #94a3b8; background: rgba(148,163,184,0.1); color: #94a3b8; }
     &.active-reimbursable { border-color: var(--warning); background: rgba(245,158,11,0.1); color: var(--warning); }
     &.active-income { border-color: var(--income); background: rgba(16,185,129,0.1); color: var(--income); }
+    &.active-savings { border-color: #0ea5e9; background: rgba(14,165,233,0.1); color: #0ea5e9; }
     &:hover { border-color: var(--primary); color: var(--text); }
   }
 }

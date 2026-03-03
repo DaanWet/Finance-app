@@ -17,7 +17,9 @@ export class Dashboard implements OnInit {
   loading = signal(true);
   error = signal('');
 
-  period = signal<'month' | 'last_month' | 'year'>('month');
+  period = signal<'month' | 'last_month' | 'year' | 'last_year' | 'custom'>('last_year');
+  customStart = signal('');
+  customEnd = signal('');
 
   constructor(private api: ApiService) {}
 
@@ -37,7 +39,7 @@ export class Dashboard implements OnInit {
       error: () => {
         this.error.set('Kan dashboard niet laden. Is de backend actief?');
         this.loading.set(false);
-      }
+      },
     });
 
     this.api.getSplitwiseBalances().subscribe({
@@ -46,13 +48,37 @@ export class Dashboard implements OnInit {
         const total = balances.reduce((sum, b) => sum + parseFloat(b.balance), 0);
         this.splitwiseTotal.set(total);
       },
-      error: () => { /* Splitwise niet geconfigureerd - negeer */ }
+      error: () => {
+        /* Splitwise niet geconfigureerd - negeer */
+      },
     });
   }
 
-  setPeriod(p: 'month' | 'last_month' | 'year') {
-    this.period.set(p);
-    this.load();
+  setPeriod(p: 'month' | 'last_month' | 'year' | 'last_year' | 'custom') {
+    if (p === 'custom') {
+      // Pre-fill with current month so date inputs have a sensible default
+      const now = new Date();
+      const start = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]!;
+      this.customStart.set(start);
+      this.customEnd.set(end);
+      this.period.set(p);
+      this.load();
+    } else {
+      this.period.set(p);
+      this.load();
+    }
+  }
+
+  setCustomDate(field: 'start' | 'end', value: string) {
+    if (field === 'start') {
+      this.customStart.set(value);
+    } else {
+      this.customEnd.set(value);
+    }
+    if (this.customStart() && this.customEnd()) {
+      this.load();
+    }
   }
 
   getPeriodDates(): { start: string; end: string } {
@@ -67,6 +93,11 @@ export class Dashboard implements OnInit {
       const start = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0]!;
       return { start, end };
+    } else if (p === 'last_year') {
+      const y = now.getFullYear() - 1;
+      return { start: `${y}-01-01`, end: `${y}-12-31` };
+    } else if (p === 'custom') {
+      return { start: this.customStart(), end: this.customEnd() };
     } else {
       return { start: `${now.getFullYear()}-01-01`, end: `${now.getFullYear()}-12-31` };
     }
@@ -77,11 +108,11 @@ export class Dashboard implements OnInit {
   }
 
   get categoryColors(): string[] {
-    return this.summary()?.byCategory.map(c => c.color) ?? [];
+    return this.summary()?.byCategory.map((c) => c.color) ?? [];
   }
 
   get monthLabels(): string[] {
-    return this.summary()?.monthlyTrend.map(m => this.monthLabel(m.month)) ?? [];
+    return this.summary()?.monthlyTrend.map((m) => this.monthLabel(m.month)) ?? [];
   }
 
   monthLabel(month: string): string {
@@ -90,6 +121,6 @@ export class Dashboard implements OnInit {
   }
 
   maxTrend(trend: { month: string; total: number }[]): number {
-    return Math.max(...trend.map(t => t.total), 1);
+    return Math.max(...trend.map((t) => t.total), 1);
   }
 }

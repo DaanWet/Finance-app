@@ -3,9 +3,14 @@
     <h1>Transacties</h1>
     <div class="header-actions">
       <label class="btn-import">
-        @if (importLoading()) { ⏳ Importeren... } @else { 📥 ING CSV Importeren }
-        <input type="file" accept=".csv" (change)="onFileSelected($event)" [disabled]="importLoading()" style="display:none">
+        @if (previewLoading() || importLoading()) { ⏳ Bezig... } @else { 📥 ING CSV Importeren }
+        <input type="file" accept=".csv" (change)="onFileSelected($event)" [disabled]="previewLoading() || importLoading()" style="display:none">
       </label>
+      @if (unconfirmedCount() > 0) {
+        <button class="btn-confirm-all" (click)="confirmAll()" title="Bevestig alle AI-categorieën">
+          🤖 {{ unconfirmedCount() }} bevestigen
+        </button>
+      }
       <button class="btn-primary" (click)="openAdd()">+ Nieuw</button>
     </div>
   </div>
@@ -13,6 +18,7 @@
   @if (importResult(); as result) {
     <div class="import-result">
       ✅ Import klaar: <strong>{{ result.imported }} nieuw</strong>, {{ result.skipped }} overgeslagen (duplicaat)
+      @if (result.ai_analyzed) { <span class="badge-ai">🤖 AI geanalyseerd</span> }
       <button class="btn-icon" (click)="importResult.set(null)">✕</button>
     </div>
   }
@@ -25,6 +31,7 @@
       <option value="personal">Persoonlijk</option>
       <option value="reimbursable">Terugbetaalbaar</option>
       <option value="income">Inkomst</option>
+      <option value="savings">Sparen</option>
     </select>
     <select [(ngModel)]="filterCategory" (change)="loadTransactions()">
       <option value="">Alle categorieën</option>
@@ -51,10 +58,35 @@
       <button class="btn-primary" (click)="openAdd()">Eerste transactie toevoegen</button>
     </div>
   } @else {
+    @if (bulkSelectedCount() > 0) {
+      <div class="bulk-action-bar">
+        <span class="bulk-count">{{ bulkSelectedCount() }} geselecteerd</span>
+        <div class="bulk-actions">
+          <button class="btn-secondary btn-sm" (click)="bulkReanalyze()" [disabled]="bulkLoading()">
+            {{ bulkLoading() ? '⏳' : '🔄' }} Heranalyseer
+          </button>
+          @if (selectedUnconfirmedCount() > 0) {
+            <button class="btn-secondary btn-sm btn-confirm-bulk" (click)="bulkConfirm()" [disabled]="bulkLoading()">
+              ✓ Bevestig ({{ selectedUnconfirmedCount() }})
+            </button>
+          }
+          <button class="btn-secondary btn-sm btn-danger-bulk" (click)="bulkDelete()" [disabled]="bulkLoading()">
+            🗑️ Verwijder
+          </button>
+          <button class="btn-icon" (click)="clearSelection()" title="Deselecteer alles">✕</button>
+        </div>
+      </div>
+    }
     <div class="table-wrap">
       <table>
         <thead>
           <tr>
+            <th style="width:40px">
+              <input type="checkbox"
+                [checked]="isAllPageSelected()"
+                [indeterminate]="isSomeSelected()"
+                (change)="toggleAllSelection()">
+            </th>
             <th>Datum</th>
             <th>Beschrijving</th>
             <th>Type</th>
@@ -66,26 +98,39 @@
         </thead>
         <tbody>
           @for (tx of transactions(); track tx.id) {
-            <tr>
-              <td class="text-muted">{{ formatDate(tx.date) }}</td>
+            <tr [class.row-selected]="selectedIds().has(tx.id)">
+              <td>
+                <input type="checkbox"
+                  [checked]="selectedIds().has(tx.id)"
+                  (change)="toggleSelection(tx.id)">
+              </td>
+              <td class="text-muted cell-date">{{ formatDate(tx.date) }}</td>
               <td>
                 {{ tx.description }}
-                @if (tx.splitwise_expense_id) {
+                @if (tx.splitwise_expense_id && splitwiseExpenseMap().get(tx.splitwise_expense_id)) {
+                  <button class="badge badge-splitwise badge-btn" (click)="openSplitwiseDetail(tx, $event)" title="Bekijk Splitwise verdeling">🤝 Splitwise</button>
+                } @else if (tx.splitwise_expense_id) {
                   <span class="badge badge-splitwise">🤝 Splitwise</span>
                 }
                 @if (tx.ing_transaction_id) {
                   <span class="badge" style="background:rgba(59,130,246,0.1);color:#60a5fa;margin-left:4px">🏦 ING</span>
                 }
               </td>
-              <td>
-                <span class="badge" [class]="'badge-' + tx.type">{{ typeBadge(tx.type) }}</span>
+              <td class="cell-type">
                 @if (tx.type === 'reimbursable' && tx.reimbursed_at) {
-                  <span class="badge badge-income" style="margin-left:4px">✓ Ontvangen</span>
+                  <span class="badge badge-reimbursed">✓ Terugbetaald</span>
+                } @else if (tx.type === 'income' && tx.reimbursed_note) {
+                  <span class="badge badge-reimbursed">↩ Terugbetaling</span>
+                } @else {
+                  <span class="badge" [class]="'badge-' + tx.type">{{ typeBadge(tx.type) }}</span>
                 }
               </td>
-              <td>
+              <td class="cell-category">
                 @if (tx.category_name) {
                   <span [style.color]="tx.category_color">{{ tx.category_icon }} {{ tx.category_name }}</span>
+                  @if (tx.category_confirmed === 0) {
+                    <span class="badge-ai-pending" title="AI-suggestie, nog niet bevestigd">🤖</span>
+                  }
                 } @else {
                   <span class="text-muted">—</span>
                 }
@@ -99,10 +144,19 @@
                   <span class="text-muted">—</span>
                 }
               </td>
-              <td style="text-align:right" [class]="tx.amount >= 0 ? 'amount-positive' : 'amount-negative'">
-                {{ tx.amount >= 0 ? '+' : '-' }}{{ formatEur(tx.amount) }}
+              <td class="cell-amount" style="text-align:right" [class.amount-positive]="tx.amount >= 0" [class.amount-negative]="tx.amount < 0">
+                @if (tx.splitwise_expense_id && splitwiseExpenseMap().get(tx.splitwise_expense_id); as sw) {
+                  {{ tx.amount >= 0 ? '+' : '-' }}{{ formatEur(sw.my_owed_share) }}
+                  <small class="text-muted split-total" title="Totaal betaald">/ {{ formatEur(tx.amount) }}</small>
+                } @else {
+                  {{ tx.amount >= 0 ? '+' : '-' }}{{ formatEur(tx.amount) }}
+                }
               </td>
               <td class="actions">
+                @if (tx.category_confirmed === 0) {
+                  <button class="btn-icon btn-confirm" (click)="confirmTransaction(tx)" title="Categorie bevestigen">✓</button>
+                }
+                <button class="btn-icon" (click)="reanalyze(tx)" [disabled]="reanalyzingId() === tx.id" title="Heranalyseer met AI">{{ reanalyzingId() === tx.id ? '⏳' : '🔄' }}</button>
                 <button class="btn-icon" (click)="openEdit(tx)" title="Bewerken">✏️</button>
                 <button class="btn-icon" (click)="delete(tx)" title="Verwijderen">🗑️</button>
               </td>
@@ -113,6 +167,120 @@
     </div>
   }
 </div>
+
+<!-- Import preview modal -->
+@if (showImportPreview()) {
+  <div class="modal-overlay" (click)="showImportPreview.set(false)">
+    <div class="modal modal-preview" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>CSV Preview — {{ previewRows().length }} rijen</h2>
+        <button class="btn-icon" (click)="showImportPreview.set(false)">✕</button>
+      </div>
+      <div class="preview-filter-bar">
+        <label>Van</label>
+        <input type="date" [ngModel]="previewDateFrom()" (ngModelChange)="previewDateFrom.set($event)">
+        <label>Tot</label>
+        <input type="date" [ngModel]="previewDateTo()" (ngModelChange)="previewDateTo.set($event)">
+        @if (previewDateFrom() || previewDateTo()) {
+          <button class="btn-secondary" (click)="previewDateFrom.set(''); previewDateTo.set('')">Wis filter</button>
+        }
+        <span class="text-muted" style="margin-left:auto;font-size:0.8rem">
+          {{ filteredPreviewRows().length }} van {{ previewRows().length }} rijen
+        </span>
+      </div>
+      <div class="modal-body preview-body">
+        <table class="preview-table">
+          <thead>
+            <tr>
+              <th><input type="checkbox" [checked]="isAllSelected()" [indeterminate]="selectedCount() > 0 && !isAllSelected()" (change)="toggleAll()"></th>
+              <th>Datum</th>
+              <th>Beschrijving</th>
+              <th style="text-align:right">Bedrag</th>
+              <th>Tegenpartij</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (row of filteredPreviewRows(); track row.index) {
+              <tr [class.row-duplicate]="row.duplicate">
+                <td><input type="checkbox" [checked]="selectedIndices().has(row.index)" [disabled]="row.duplicate" (change)="toggleRow(row.index)"></td>
+                <td class="text-muted">{{ formatDate(row.date) }}</td>
+                <td>{{ row.description }}</td>
+                <td style="text-align:right" [class]="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
+                  {{ row.amount >= 0 ? '+' : '-' }}{{ formatEur(row.amount) }}
+                </td>
+                <td class="text-muted preview-iban">{{ row.counterparty_account ?? '—' }}</td>
+                <td>@if (row.duplicate) { <span class="badge-duplicate">duplicaat</span> }</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer preview-footer">
+        <span class="preview-summary">
+          <strong>{{ selectedCount() }}</strong> geselecteerd
+          @if (totalSelectableCount() !== selectableCount()) { (van {{ totalSelectableCount() }} totaal) }
+          @if (duplicateCount() > 0) { · {{ duplicateCount() }} duplicaten }
+        </span>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn-secondary" (click)="showImportPreview.set(false)">Annuleren</button>
+          <button class="btn-primary" (click)="confirmImport()" [disabled]="selectedCount() === 0">
+            📥 Importeer {{ selectedCount() }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Splitwise detail popup -->
+@if (splitwiseDetail(); as exp) {
+  <div class="modal-overlay" (click)="splitwiseDetail.set(null)">
+    <div class="modal modal-splitwise" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>🤝 {{ exp.description }}</h2>
+        <button class="btn-icon" (click)="splitwiseDetail.set(null)">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sw-detail-meta">
+          <span class="text-muted">{{ exp.date.slice(0, 10) }}</span>
+          <span class="sw-total">Totaal: <strong>{{ formatEur(exp.total_cost) }}</strong></span>
+        </div>
+        <table class="sw-participants-table">
+          <thead>
+            <tr>
+              <th>Deelnemer</th>
+              <th style="text-align:right">Betaald</th>
+              <th style="text-align:right">Aandeel</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (p of exp.participants; track p.user_id) {
+              @if (p.owed_share > 0 || p.paid_share > 0) {
+                <tr [class.sw-row-me]="p.paid_share > 0 && p.paid_share === exp.my_paid_share">
+                  <td>
+                    {{ participantName(p) }}
+                    @if (p.paid_share > 0 && p.paid_share === exp.my_paid_share) {
+                      <span class="text-muted"> (jij)</span>
+                    }
+                  </td>
+                  <td style="text-align:right" class="amount-positive">
+                    @if (p.paid_share > 0) { {{ formatEur(p.paid_share) }} } @else { — }
+                  </td>
+                  <td style="text-align:right">{{ formatEur(p.owed_share) }}</td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer">
+        <span class="text-muted">Jouw aandeel: <strong class="amount-negative">-{{ formatEur(exp.my_owed_share) }}</strong></span>
+        <button class="btn-secondary" (click)="splitwiseDetail.set(null)">Sluiten</button>
+      </div>
+    </div>
+  </div>
+}
 
 <!-- Modal -->
 @if (showModal()) {
@@ -130,6 +298,7 @@
             <button class="type-btn" [class]="form.type === 'personal' ? 'active-personal' : ''" (click)="form.type = 'personal'">💳 Persoonlijk</button>
             <button class="type-btn" [class]="form.type === 'reimbursable' ? 'active-reimbursable' : ''" (click)="form.type = 'reimbursable'">↩️ Terugbetaalbaar</button>
             <button class="type-btn" [class]="form.type === 'income' ? 'active-income' : ''" (click)="form.type = 'income'">💚 Inkomst</button>
+            <button class="type-btn" [class]="form.type === 'savings' ? 'active-savings' : ''" (click)="form.type = 'savings'">🏦 Sparen</button>
           </div>
         </div>
 
@@ -179,6 +348,36 @@
           <label>Notities</label>
           <textarea rows="2" [(ngModel)]="form.notes" placeholder="Optionele notitie..."></textarea>
         </div>
+
+        @if (splitwiseLoading()) {
+          <div class="form-group">
+            <label>🤝 Splitwise</label>
+            <span class="text-muted">Laden...</span>
+          </div>
+        } @else if (splitwiseExpenses().length > 0) {
+          <div class="form-group">
+            <label>🤝 Splitwise onkost koppelen</label>
+            <input
+              type="text"
+              placeholder="Zoek op omschrijving of bedrag..."
+              [value]="splitwiseSearch()"
+              (input)="splitwiseSearch.set($any($event.target).value); splitwiseShowAll.set(false)"
+            >
+            <select [(ngModel)]="form.splitwise_expense_id" name="splitwise_expense_id" size="4" style="margin-top:4px">
+              <option [ngValue]="null">— Geen koppeling —</option>
+              @for (exp of filteredSplitwise(); track exp.id) {
+                <option [ngValue]="exp.id.toString()">
+                  {{ exp.date.slice(0, 10) }} · {{ exp.description }} · €{{ exp.my_paid_share }}
+                </option>
+              }
+            </select>
+            @if (!splitwiseShowAll() && !splitwiseSearch()) {
+              <button type="button" class="btn-link" (click)="splitwiseShowAll.set(true)">
+                Alle onkosten tonen ({{ splitwiseExpenses().length }})
+              </button>
+            }
+          </div>
+        }
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" (click)="closeModal()">Annuleren</button>

@@ -16,7 +16,7 @@ router.get('/', (_req: Request, res: Response) => {
 router.post('/', (req: Request, res: Response) => {
   const { pattern, type, organization_id, category_id } = req.body;
   if (!pattern || !type) return res.status(400).json({ error: 'pattern and type are required' });
-  const validTypes = ['personal', 'reimbursable', 'income'];
+  const validTypes = ['personal', 'reimbursable', 'income', 'savings'];
   if (!validTypes.includes(type)) return res.status(400).json({ error: 'invalid type' });
 
   const result = getDb().prepare(

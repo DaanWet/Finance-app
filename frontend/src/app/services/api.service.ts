@@ -4,7 +4,8 @@ import { Observable } from 'rxjs';
 import {
   Transaction, Organization, Category, ReimbursementGroup,
   DashboardSummary, SplitwiseExpense, SplitwiseBalance,
-  ClassificationRule, ImportResult
+  ClassificationRule, ImportResult, CsvPreviewRow,
+  ExpenseReceipt, ExpensesPageData, GmailFetchResult
 } from '../models';
 
 const BASE = 'http://localhost:3000/api';
@@ -38,6 +39,26 @@ export class ApiService {
 
   deleteTransaction(id: number): Observable<void> {
     return this.http.delete<void>(`${BASE}/transactions/${id}`);
+  }
+
+  confirmAllTransactions(): Observable<{ confirmed: number }> {
+    return this.http.post<{ confirmed: number }>(`${BASE}/transactions/confirm-all`, {});
+  }
+
+  reanalyzeTransaction(id: number): Observable<Transaction> {
+    return this.http.post<Transaction>(`${BASE}/transactions/${id}/reanalyze`, {});
+  }
+
+  bulkConfirm(ids: number[]): Observable<{ confirmed: number }> {
+    return this.http.post<{ confirmed: number }>(`${BASE}/transactions/bulk-confirm`, { ids });
+  }
+
+  bulkDelete(ids: number[]): Observable<{ deleted: number }> {
+    return this.http.post<{ deleted: number }>(`${BASE}/transactions/bulk-delete`, { ids });
+  }
+
+  bulkReanalyze(ids: number[]): Observable<{ reanalyzed: number; transactions: Transaction[] }> {
+    return this.http.post<{ reanalyzed: number; transactions: Transaction[] }>(`${BASE}/transactions/bulk-reanalyze`, { ids });
   }
 
   // Organizations
@@ -79,8 +100,9 @@ export class ApiService {
     return this.http.get<ReimbursementGroup[]>(`${BASE}/reimbursements/outstanding`);
   }
 
-  getReceivedReimbursements(): Observable<ReimbursementGroup[]> {
-    return this.http.get<ReimbursementGroup[]>(`${BASE}/reimbursements/received`);
+  getReceivedReimbursements(months?: number): Observable<ReimbursementGroup[]> {
+    const params = months ? `?months=${months}` : '';
+    return this.http.get<ReimbursementGroup[]>(`${BASE}/reimbursements/received${params}`);
   }
 
   markReimbursed(id: number, note?: string): Observable<{ success: boolean }> {
@@ -112,10 +134,53 @@ export class ApiService {
   }
 
   // Import
-  importIngCsv(file: File): Observable<ImportResult> {
+  previewIngCsv(file: File): Observable<{ rows: CsvPreviewRow[] }> {
     const formData = new FormData();
     formData.append('file', file);
+    return this.http.post<{ rows: CsvPreviewRow[] }>(`${BASE}/import/ing-csv/preview`, formData);
+  }
+
+  importIngCsv(file: File, selectedIndices: number[]): Observable<ImportResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('selectedIndices', JSON.stringify(selectedIndices));
     return this.http.post<ImportResult>(`${BASE}/import/ing-csv`, formData);
+  }
+
+  // Expenses
+  getExpenses(month: string): Observable<ExpensesPageData> {
+    return this.http.get<ExpensesPageData>(`${BASE}/expenses`, { params: { month } });
+  }
+
+  toggleWorkExpense(id: number): Observable<{ id: number; is_work_expense: number }> {
+    return this.http.put<{ id: number; is_work_expense: number }>(`${BASE}/expenses/${id}/toggle`, {});
+  }
+
+  uploadReceipt(txId: number, file: File): Observable<ExpenseReceipt> {
+    const fd = new FormData();
+    fd.append('file', file);
+    return this.http.post<ExpenseReceipt>(`${BASE}/expenses/${txId}/receipt`, fd);
+  }
+
+  deleteReceipt(txId: number, receiptId: number): Observable<void> {
+    return this.http.delete<void>(`${BASE}/expenses/${txId}/receipt/${receiptId}`);
+  }
+
+  getGmailStatus(): Observable<{ connected: boolean }> {
+    return this.http.get<{ connected: boolean }>(`${BASE}/expenses/gmail/status`);
+  }
+
+  fetchGmailTickets(month: string): Observable<GmailFetchResult> {
+    return this.http.post<GmailFetchResult>(`${BASE}/expenses/gmail/fetch`, { month });
+  }
+
+  /** Returns a URL to trigger download — use window.open() or anchor download */
+  getExpenseExcelUrl(month: string): string {
+    return `${BASE}/expenses/export/excel?month=${month}`;
+  }
+
+  getExpensePdfUrl(month: string): string {
+    return `${BASE}/expenses/export/pdf?month=${month}`;
   }
 
   // Classification rules

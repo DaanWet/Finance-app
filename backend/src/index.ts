@@ -1,3 +1,4 @@
+import './polyfill'; // must be first — polyfills globalThis.File for Node.js 18
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -10,6 +11,7 @@ import dashboardRouter from './routes/dashboard';
 import splitwiseRouter from './routes/splitwise';
 import importRouter from './routes/import';
 import classificationRulesRouter from './routes/classificationRules';
+import expensesRouter from './routes/expenses';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3000;
@@ -26,6 +28,7 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/splitwise', splitwiseRouter);
 app.use('/api/import', importRouter);
 app.use('/api/classification-rules', classificationRulesRouter);
+app.use('/api/expenses', expensesRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

@@ -50,6 +50,7 @@
         <option value="personal">Persoonlijk</option>
         <option value="reimbursable">Terugbetaalbaar</option>
         <option value="income">Inkomst</option>
+        <option value="savings">Sparen</option>
       </select>
       @if (newRule.type === 'reimbursable') {
         <select [(ngModel)]="newRule.organization_id">

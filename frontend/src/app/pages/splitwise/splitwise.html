@@ -49,6 +49,7 @@
             <tr>
               <th>Datum</th>
               <th>Beschrijving</th>
+              <th>Groep</th>
               <th style="text-align:right">Totaal</th>
               <th style="text-align:right">Jouw aandeel</th>
               <th style="text-align:right">Jij betaalde</th>
@@ -59,6 +60,7 @@
               <tr>
                 <td class="text-muted">{{ formatDate(e.date) }}</td>
                 <td>{{ e.description }}</td>
+                <td class="text-muted">{{ e.group_name ?? '—' }}</td>
                 <td style="text-align:right">{{ formatEur(e.total_cost) }}</td>
                 <td style="text-align:right" class="amount-negative">{{ formatEur(e.my_owed_share) }}</td>
                 <td style="text-align:right" [class.text-success]="e.my_paid_share > 0">

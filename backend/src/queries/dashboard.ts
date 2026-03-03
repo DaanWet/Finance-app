@@ -5,6 +5,8 @@ export interface DashboardSummary {
   reimbursableOutstanding: number;
   reimbursableCount: number;
   incomeTotal: number;
+  savingsTotal: number;
+  splitwisePaidForOthers: number;
   byCategory: { name: string; color: string; icon: string | null; total: number }[];
   monthlyTrend: { month: string; total: number }[];
 }
@@ -15,7 +17,7 @@ export function getDashboardSummary(
   endDate: string
 ): DashboardSummary {
   const personalTotal = (db.prepare(`
-    SELECT COALESCE(SUM(ABS(amount)), 0) AS total
+    SELECT COALESCE(SUM(COALESCE(splitwise_owed_share, ABS(amount))), 0) AS total
     FROM transactions
     WHERE type = 'personal'
       AND amount < 0
@@ -36,12 +38,19 @@ export function getDashboardSummary(
       AND date BETWEEN ? AND ?
   `).get(startDate, endDate) as { total: number }).total;
 
+  const savingsTotal = (db.prepare(`
+    SELECT COALESCE(SUM(-amount), 0) AS total
+    FROM transactions
+    WHERE type = 'savings'
+      AND date BETWEEN ? AND ?
+  `).get(startDate, endDate) as { total: number }).total;
+
   const byCategory = db.prepare(`
     SELECT
       COALESCE(c.name, 'Zonder categorie') AS name,
       COALESCE(c.color, '#94a3b8') AS color,
       c.icon,
-      SUM(ABS(t.amount)) AS total
+      SUM(COALESCE(t.splitwise_owed_share, ABS(t.amount))) AS total
     FROM transactions t
     LEFT JOIN categories c ON t.category_id = c.id
     WHERE t.type = 'personal'
@@ -51,10 +60,19 @@ export function getDashboardSummary(
     ORDER BY total DESC
   `).all(startDate, endDate) as { name: string; color: string; icon: string | null; total: number }[];
 
+  const splitwisePaidForOthers = (db.prepare(`
+    SELECT COALESCE(SUM(ABS(amount) - splitwise_owed_share), 0) AS total
+    FROM transactions
+    WHERE type = 'personal'
+      AND amount < 0
+      AND splitwise_owed_share IS NOT NULL
+      AND date BETWEEN ? AND ?
+  `).get(startDate, endDate) as { total: number }).total;
+
   const monthlyTrend = db.prepare(`
     SELECT
       strftime('%Y-%m', date) AS month,
-      SUM(ABS(amount)) AS total
+      SUM(COALESCE(splitwise_owed_share, ABS(amount))) AS total
     FROM transactions
     WHERE type = 'personal'
       AND amount < 0
@@ -68,6 +86,8 @@ export function getDashboardSummary(
     reimbursableOutstanding: reimbursableRow.total,
     reimbursableCount: reimbursableRow.count,
     incomeTotal,
+    savingsTotal,
+    splitwisePaidForOthers,
     byCategory,
     monthlyTrend,
   };

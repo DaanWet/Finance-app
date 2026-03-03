@@ -13,6 +13,7 @@ export class App {
     { path: '/transactions', label: 'Transacties', icon: '💳' },
     { path: '/reimbursements', label: 'Terugbetalingen', icon: '↩️' },
     { path: '/splitwise', label: 'Splitwise', icon: '🤝' },
+    { path: '/expenses', label: 'Onkosten', icon: '🧾' },
     { path: '/settings', label: 'Instellingen', icon: '⚙️' },
   ];
 }

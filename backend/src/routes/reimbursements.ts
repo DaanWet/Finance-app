@@ -8,8 +8,9 @@ router.get('/outstanding', (_req: Request, res: Response) => {
   res.json(getOutstandingReimbursements(getDb()));
 });
 
-router.get('/received', (_req: Request, res: Response) => {
-  res.json(getReceivedReimbursements(getDb()));
+router.get('/received', (req: Request, res: Response) => {
+  const months = req.query['months'] ? Number(req.query['months']) : undefined;
+  res.json(getReceivedReimbursements(getDb(), months));
 });
 
 router.post('/:id/mark-received', (req: Request, res: Response) => {

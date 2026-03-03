@@ -15,6 +15,7 @@ export class Reimbursements implements OnInit {
   received = signal<ReimbursementGroup[]>([]);
   loading = signal(true);
   showReceivedExpanded = signal(false);
+  receivedPeriod = signal<number | null>(12);
   markingId = signal<number | null>(null);
   confirmId = signal<number | null>(null);
   confirmNote = '';
@@ -31,7 +32,7 @@ export class Reimbursements implements OnInit {
       this.outstanding.set(data);
       this.loading.set(false);
     });
-    this.api.getReceivedReimbursements().subscribe(data => this.received.set(data));
+    this.api.getReceivedReimbursements(this.receivedPeriod() ?? undefined).subscribe(data => this.received.set(data));
   }
 
   totalOutstanding(): number {
@@ -61,6 +62,11 @@ export class Reimbursements implements OnInit {
       },
       error: () => this.markingId.set(null),
     });
+  }
+
+  setReceivedPeriod(months: number | null) {
+    this.receivedPeriod.set(months);
+    this.api.getReceivedReimbursements(months ?? undefined).subscribe(data => this.received.set(data));
   }
 
   formatEur(amount: number): string {

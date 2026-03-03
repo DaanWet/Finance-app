@@ -63,17 +63,25 @@
       }
     }
 
-    <!-- Received (last 3 months) -->
+    <!-- Received -->
     <div class="section-header">
-      <h2 class="section-title">✅ Ontvangen (afgelopen 3 maanden)</h2>
-      <button class="btn-secondary btn-sm" (click)="showReceivedExpanded.set(!showReceivedExpanded())">
-        {{ showReceivedExpanded() ? 'Verbergen' : 'Tonen' }}
-      </button>
+      <h2 class="section-title">✅ Ontvangen</h2>
+      <div class="section-controls">
+        <div class="period-selector">
+          <button [class.active]="receivedPeriod() === 3" (click)="setReceivedPeriod(3)">3m</button>
+          <button [class.active]="receivedPeriod() === 6" (click)="setReceivedPeriod(6)">6m</button>
+          <button [class.active]="receivedPeriod() === 12" (click)="setReceivedPeriod(12)">1j</button>
+          <button [class.active]="receivedPeriod() === null" (click)="setReceivedPeriod(null)">Alles</button>
+        </div>
+        <button class="btn-secondary btn-sm" (click)="showReceivedExpanded.set(!showReceivedExpanded())">
+          {{ showReceivedExpanded() ? 'Verbergen' : 'Tonen' }}
+        </button>
+      </div>
     </div>
 
     @if (showReceivedExpanded()) {
       @if (received().length === 0) {
-        <p class="text-muted" style="padding: 1rem 0">Geen ontvangen terugbetalingen de afgelopen 3 maanden.</p>
+        <p class="text-muted" style="padding: 1rem 0">Geen ontvangen terugbetalingen in deze periode.</p>
       } @else {
         @for (group of received(); track group.organization_id) {
           <div class="org-group card received-group">

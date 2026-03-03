@@ -5,6 +5,13 @@
       <button [class.active]="period() === 'month'" (click)="setPeriod('month')">Deze maand</button>
       <button [class.active]="period() === 'last_month'" (click)="setPeriod('last_month')">Vorige maand</button>
       <button [class.active]="period() === 'year'" (click)="setPeriod('year')">Dit jaar</button>
+      <button [class.active]="period() === 'last_year'" (click)="setPeriod('last_year')">Afgelopen jaar</button>
+      <button [class.active]="period() === 'custom'" (click)="setPeriod('custom')">Aangepaste periode</button>
+      @if (period() === 'custom') {
+        <input type="date" [value]="customStart()" (change)="setCustomDate('start', $any($event.target).value)">
+        <span>t/m</span>
+        <input type="date" [value]="customEnd()" (change)="setCustomDate('end', $any($event.target).value)">
+      }
     </div>
   </div>
 
@@ -21,7 +28,11 @@
       <div class="card summary-card">
         <div class="card-label">Persoonlijke uitgaven</div>
         <div class="card-amount amount-negative">{{ formatEur(summary()!.personalTotal) }}</div>
-        <div class="card-sub text-muted">Enkel jouw eigen kosten</div>
+        @if (summary()!.splitwisePaidForOthers > 0) {
+          <div class="card-sub text-muted">+ {{ formatEur(summary()!.splitwisePaidForOthers) }} voorgeschoten voor anderen</div>
+        } @else {
+          <div class="card-sub text-muted">Enkel jouw eigen kosten</div>
+        }
       </div>
 
       <div class="card summary-card clickable" routerLink="/reimbursements">
@@ -41,6 +52,14 @@
           <div class="card-label">Inkomsten</div>
           <div class="card-amount text-success">{{ formatEur(summary()!.incomeTotal) }}</div>
           <div class="card-sub text-muted">Deze periode</div>
+        </div>
+      }
+
+      @if (summary()!.savingsTotal > 0) {
+        <div class="card summary-card">
+          <div class="card-label">Gespaard</div>
+          <div class="card-amount" style="color:#0ea5e9">{{ formatEur(summary()!.savingsTotal) }}</div>
+          <div class="card-sub text-muted">Deze periode opzijgezet</div>
         </div>
       }
     </div>
