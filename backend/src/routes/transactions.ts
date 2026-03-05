@@ -6,7 +6,7 @@ import {
   confirmAllTransactions, confirmTransactions, deleteTransactions
 } from '../queries/transactions';
 import { analyzeTransactions, TransactionAnalysisInput } from '../services/aiAnalysis';
-import { fetchSplitwiseExpenses } from './import';
+import { fetchSplitwiseExpenses, initStreamResponse, sendProgress, sendResult, sendStreamError } from './import';
 import { cleanupLinksForDeletedTransaction } from '../queries/reimbursementLinks';
 
 const router = Router();
@@ -87,12 +87,19 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
     return res.status(404).json({ error: 'No transactions found' });
   }
 
+  initStreamResponse(res);
+
+  try {
+  sendProgress(res, 'Data laden...', 5);
+
   const categories = db.prepare('SELECT id, name FROM categories ORDER BY id').all() as { id: number; name: string }[];
   const organizations = db.prepare('SELECT id, name FROM organizations ORDER BY id').all() as { id: number; name: string }[];
 
+  sendProgress(res, 'Splitwise data ophalen...', 10);
   const earliestDate = txs.reduce((min, tx) => tx.date < min ? tx.date : min, txs[0].date);
   const splitwiseExpenses = await fetchSplitwiseExpenses(earliestDate);
 
+  sendProgress(res, 'AI-analyse uitvoeren...', 15);
   const inputs: TransactionAnalysisInput[] = txs.map((tx, idx) => ({
     index: idx,
     date: tx.date,
@@ -106,8 +113,10 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
 
   const aiResults = await analyzeTransactions(inputs, { categories, organizations, splitwiseExpenses });
   if (!aiResults || aiResults.length === 0) {
-    return res.status(500).json({ error: 'AI analyse mislukt' });
+    return sendStreamError(res, 'AI analyse mislukt');
   }
+
+  sendProgress(res, 'Transacties bijwerken...', 82);
 
   for (const ai of aiResults) {
     const tx = txs[ai.index];
@@ -161,6 +170,8 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
     }
   }
 
+  sendProgress(res, 'Voorschotten koppelen...', 92);
+
   // Within-batch advance linking (via AI advance_repaid_by_index)
   for (const ai of aiResults) {
     if (ai.advance_repaid_by_index === null) continue;
@@ -187,7 +198,11 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
   }
 
   const updated = getTransactionsByIds(db, txs.map(t => t.id));
-  res.json({ reanalyzed: updated.length, transactions: updated });
+  sendResult(res, { reanalyzed: updated.length, transactions: updated });
+
+  } catch (err) {
+    sendStreamError(res, 'Heranalyse mislukt: ' + (err instanceof Error ? err.message : 'Onbekende fout'));
+  }
 });
 
 router.get('/:id', (req: Request, res: Response) => {

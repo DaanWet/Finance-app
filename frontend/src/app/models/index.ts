@@ -162,3 +162,10 @@ export interface ExpenseCandidateTransaction {
   date: string;
   organization_name: string | null;
 }
+
+export interface StreamProgress<T = unknown> {
+  message: string;
+  progress: number;
+  result?: T;
+  error?: boolean;
+}

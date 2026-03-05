@@ -1,12 +1,13 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, Subscriber } from 'rxjs';
 import {
   Transaction, Organization, Category, ReimbursementGroup,
   DashboardSummary, SplitwiseExpense, SplitwiseBalance,
   ClassificationRule, ImportResult, CsvPreviewRow,
   ExpenseReceipt, ExpensesPageData, GmailFetchResult,
-  ReimbursementLink, IncomeCandidateTransaction, ExpenseCandidateTransaction
+  ReimbursementLink, IncomeCandidateTransaction, ExpenseCandidateTransaction,
+  StreamProgress
 } from '../models';
 
 const BASE = 'http://localhost:3000/api';
@@ -58,8 +59,8 @@ export class ApiService {
     return this.http.post<{ deleted: number }>(`${BASE}/transactions/bulk-delete`, { ids });
   }
 
-  bulkReanalyze(ids: number[]): Observable<{ reanalyzed: number; transactions: Transaction[] }> {
-    return this.http.post<{ reanalyzed: number; transactions: Transaction[] }>(`${BASE}/transactions/bulk-reanalyze`, { ids });
+  bulkReanalyze(ids: number[]): Observable<StreamProgress<{ reanalyzed: number; transactions: Transaction[] }>> {
+    return this.streamPost<{ reanalyzed: number; transactions: Transaction[] }>(`${BASE}/transactions/bulk-reanalyze`, { ids });
   }
 
   // Organizations
@@ -165,11 +166,11 @@ export class ApiService {
     return this.http.post<{ rows: CsvPreviewRow[] }>(`${BASE}/import/ing-csv/preview`, formData);
   }
 
-  importIngCsv(file: File, selectedIndices: number[]): Observable<ImportResult> {
+  importIngCsv(file: File, selectedIndices: number[]): Observable<StreamProgress<ImportResult>> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('selectedIndices', JSON.stringify(selectedIndices));
-    return this.http.post<ImportResult>(`${BASE}/import/ing-csv`, formData);
+    return this.streamPost<ImportResult>(`${BASE}/import/ing-csv`, formData);
   }
 
   // Expenses
@@ -219,5 +220,72 @@ export class ApiService {
 
   deleteClassificationRule(id: number): Observable<void> {
     return this.http.delete<void>(`${BASE}/classification-rules/${id}`);
+  }
+
+  private streamPost<T>(url: string, body: FormData | Record<string, unknown>): Observable<StreamProgress<T>> {
+    return new Observable((subscriber: Subscriber<StreamProgress<T>>) => {
+      const abortController = new AbortController();
+
+      const fetchOptions: RequestInit = {
+        method: 'POST',
+        signal: abortController.signal,
+      };
+
+      if (body instanceof FormData) {
+        fetchOptions.body = body;
+      } else {
+        fetchOptions.headers = { 'Content-Type': 'application/json' };
+        fetchOptions.body = JSON.stringify(body);
+      }
+
+      fetch(url, fetchOptions)
+        .then(async (response) => {
+          if (!response.ok) {
+            const errorBody = await response.json();
+            throw new Error(errorBody.error || `HTTP ${response.status}`);
+          }
+
+          const reader = response.body!.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop()!;
+
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const event = JSON.parse(line) as StreamProgress<T>;
+                subscriber.next(event);
+                if (event.error) {
+                  subscriber.error(new Error(event.message));
+                  return;
+                }
+              } catch { /* skip malformed lines */ }
+            }
+          }
+
+          if (buffer.trim()) {
+            try {
+              const event = JSON.parse(buffer) as StreamProgress<T>;
+              subscriber.next(event);
+            } catch { /* ignore */ }
+          }
+
+          subscriber.complete();
+        })
+        .catch((err) => {
+          if (err.name !== 'AbortError') {
+            subscriber.error(err);
+          }
+        });
+
+      return () => abortController.abort();
+    });
   }
 }

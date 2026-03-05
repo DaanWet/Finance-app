@@ -19,6 +19,8 @@ export class Transactions implements OnInit {
   editingTx = signal<Transaction | null>(null);
   importResult = signal<ImportResult | null>(null);
   importLoading = signal(false);
+  importProgress = signal<{ message: string; progress: number } | null>(null);
+  bulkProgress = signal<{ message: string; progress: number } | null>(null);
   unconfirmedCount = computed(() => this.transactions().filter(tx => tx.category_confirmed === 0).length);
   reanalyzingId = signal<number | null>(null);
   splitwiseExpenses = signal<SplitwiseExpense[]>([]);
@@ -144,6 +146,25 @@ export class Transactions implements OnInit {
     notes: '',
     splitwise_expense_id: null,
   };
+
+  private progressTimer: ReturnType<typeof setInterval> | null = null;
+
+  private startProgressTick(progressSignal: typeof this.importProgress, cap: number) {
+    this.stopProgressTick();
+    this.progressTimer = setInterval(() => {
+      const current = progressSignal();
+      if (current && current.progress < cap) {
+        progressSignal.set({ ...current, progress: current.progress + 1 });
+      }
+    }, 700);
+  }
+
+  private stopProgressTick() {
+    if (this.progressTimer) {
+      clearInterval(this.progressTimer);
+      this.progressTimer = null;
+    }
+  }
 
   constructor(private api: ApiService) {}
 
@@ -321,17 +342,31 @@ export class Transactions implements OnInit {
     const ids = Array.from(this.selectedIds());
     if (ids.length === 0) return;
     this.bulkLoading.set(true);
+    this.bulkProgress.set({ message: 'Starten...', progress: 0 });
     this.api.bulkReanalyze(ids).subscribe({
-      next: ({ transactions: updated }) => {
-        const updatedMap = new Map(updated.map(t => [t.id, t]));
-        this.transactions.update(txs =>
-          txs.map(t => updatedMap.get(t.id) ?? t)
-        );
-        this.clearSelection();
-        this.bulkLoading.set(false);
+      next: (event) => {
+        if (event.result) {
+          this.stopProgressTick();
+          const updatedMap = new Map(event.result.transactions.map(t => [t.id, t]));
+          this.transactions.update(txs =>
+            txs.map(t => updatedMap.get(t.id) ?? t)
+          );
+          this.clearSelection();
+          this.bulkLoading.set(false);
+          this.bulkProgress.set(null);
+        } else {
+          this.bulkProgress.set({ message: event.message, progress: event.progress });
+          if (event.message.includes('AI-analyse')) {
+            this.startProgressTick(this.bulkProgress, 80);
+          } else {
+            this.stopProgressTick();
+          }
+        }
       },
       error: () => {
+        this.stopProgressTick();
         this.bulkLoading.set(false);
+        this.bulkProgress.set(null);
         alert('Bulk heranalyse mislukt');
       },
     });
@@ -509,16 +544,30 @@ export class Transactions implements OnInit {
     if (!this.previewFile) return;
     const indices = Array.from(this.selectedIndices());
     this.importLoading.set(true);
+    this.importProgress.set({ message: 'Starten...', progress: 0 });
     this.showImportPreview.set(false);
     this.api.importIngCsv(this.previewFile, indices).subscribe({
-      next: (result) => {
-        this.importResult.set(result);
-        this.importLoading.set(false);
-        this.previewFile = null;
-        this.loadTransactions();
+      next: (event) => {
+        if (event.result) {
+          this.stopProgressTick();
+          this.importResult.set(event.result);
+          this.importLoading.set(false);
+          this.importProgress.set(null);
+          this.previewFile = null;
+          this.loadTransactions();
+        } else {
+          this.importProgress.set({ message: event.message, progress: event.progress });
+          if (event.message.includes('AI-analyse')) {
+            this.startProgressTick(this.importProgress, 78);
+          } else {
+            this.stopProgressTick();
+          }
+        }
       },
       error: () => {
+        this.stopProgressTick();
         this.importLoading.set(false);
+        this.importProgress.set(null);
         this.previewFile = null;
         alert('Import mislukt. Controleer het CSV-formaat.');
       },

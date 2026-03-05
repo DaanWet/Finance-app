@@ -8,6 +8,28 @@ import { analyzeTransactions, TransactionAnalysisInput, AnalysisContext } from '
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// --- NDJSON streaming helpers (used by import + transactions routes) ---
+export function initStreamResponse(res: Response): void {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+}
+
+export function sendProgress(res: Response, message: string, progress: number): void {
+  res.write(JSON.stringify({ message, progress }) + '\n');
+}
+
+export function sendResult<T>(res: Response, result: T): void {
+  res.write(JSON.stringify({ message: 'Klaar', progress: 100, result }) + '\n');
+  res.end();
+}
+
+export function sendStreamError(res: Response, message: string): void {
+  res.write(JSON.stringify({ message, error: true }) + '\n');
+  res.end();
+}
+
 interface ParsedIngRow {
   date: string;
   description: string;
@@ -214,6 +236,12 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
     ? new Set<number>(JSON.parse(req.body.selectedIndices) as number[])
     : null;
 
+  // Start streaming progress
+  initStreamResponse(res);
+
+  try {
+  sendProgress(res, 'CSV verwerken...', 5);
+
   const db = getDb();
 
   // Context ophalen voor AI analyse
@@ -230,9 +258,11 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
   const earliestDate = dates[0] ?? new Date().toISOString().split('T')[0];
 
   // Splitwise expenses ophalen (best-effort)
+  sendProgress(res, 'Splitwise data ophalen...', 10);
   const splitwiseExpenses = await fetchSplitwiseExpenses(earliestDate);
 
   // AI analyse uitvoeren (best-effort)
+  sendProgress(res, 'AI-analyse uitvoeren...', 15);
   const analysisInputs: TransactionAnalysisInput[] = rowsToAnalyze.map(({ row, i }) => ({
     index: i,
     date: row.date,
@@ -252,6 +282,8 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
     id: number; pattern: string; type: 'personal' | 'reimbursable' | 'income' | 'savings';
     organization_id: number | null; category_id: number | null;
   }>;
+
+  sendProgress(res, 'Transacties opslaan...', 80);
 
   let imported = 0;
   let skipped = 0;
@@ -338,6 +370,8 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
     imported++;
   }
 
+  sendProgress(res, 'Voorschotten koppelen...', 92);
+
   // Tweede pas: within-batch voorschot-linking (via AI advance_repaid_by_index)
   if (aiResults) {
     for (const ai of aiResults) {
@@ -404,13 +438,17 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
     }
   }
 
-  res.json({
+  sendResult(res, {
     imported,
     skipped,
     total: selectedSet ? selectedSet.size : rows.length,
     ai_analyzed: aiAnalyzed,
     transactions: importedRows,
   });
+
+  } catch (err) {
+    sendStreamError(res, 'Import mislukt: ' + (err instanceof Error ? err.message : 'Onbekende fout'));
+  }
 });
 
 export default router;
