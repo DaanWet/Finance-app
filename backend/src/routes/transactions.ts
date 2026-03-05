@@ -22,6 +22,7 @@ router.get('/', (req: Request, res: Response) => {
     date_from: req.query['date_from'] as string | undefined,
     date_to: req.query['date_to'] as string | undefined,
     search: req.query['search'] as string | undefined,
+    source: req.query['source'] as string | undefined,
   };
   res.json(getTransactions(db, filters));
 });

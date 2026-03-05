@@ -23,6 +23,7 @@ backend/src/
     excelExport.ts      — Excel onkostennota generatie
     pdfExport.ts        — PDF bonnen-bundel generatie
     csvParser.ts        — ING CSV parsing (oud + nieuw formaat)
+    pluxeeCsvParser.ts  — Pluxee maaltijdcheque CSV parsing
     importService.ts    — 4-pass import orchestratie
     reanalyzeService.ts — AI heranalyse (single + bulk)
     advanceMatching.ts  — Voorschot-detectie en linking
@@ -58,6 +59,16 @@ frontend/src/app/
 - Preview-endpoint: `POST /api/import/ing-csv/preview`
 - Import-endpoint: `POST /api/import/ing-csv` met `{ selectedIndices: number[] | null }`
 - 4-pass algoritme: (1) opslaan + AI, (2) within-batch voorschot-linking, (3) DB-niveau voorschot-matching, (4) NMBS ticket matching
+
+## CSV import (Pluxee)
+- Separator: `;`, kolommen: `Datum;Beschrijving;Bedrag`
+- Datum: `DD-MM-YYYY`, bedrag: `"+ 11.1 €"` (altijd positief)
+- Alleen "Uitgave" regels worden geïmporteerd, stortingen overgeslagen
+- Merchant name geëxtraheerd uit beschrijving: `"Uitgave MERCHANT (Transactie UUID)"`
+- Transaction ID: `pluxee_<uuid>` (opgeslagen in `ing_transaction_id`)
+- Preview-endpoint: `POST /api/import/pluxee-csv/preview`
+- Import-endpoint: `POST /api/import/pluxee-csv` met `{ selectedIndices: number[] | null }`
+- Hergebruikt dezelfde 4-pass import flow als ING (incl. AI-analyse)
 
 ## AI analyse
 - Model: claude-opus-4-6, env var `ANTHROPIC_API_KEY`
@@ -121,8 +132,10 @@ frontend/src/app/
 ### Import (`/api/import`)
 | Method | Endpoint | Functie |
 |--------|----------|---------|
-| POST | `/ing-csv/preview` | Parse CSV, detecteer duplicaten, return preview rows |
-| POST | `/ing-csv` | Volledige import, body: `{ selectedIndices }` |
+| POST | `/ing-csv/preview` | Parse ING CSV, detecteer duplicaten, return preview rows |
+| POST | `/ing-csv` | Volledige ING import, body: `{ selectedIndices }` |
+| POST | `/pluxee-csv/preview` | Parse Pluxee CSV (alleen uitgaven), detecteer duplicaten |
+| POST | `/pluxee-csv` | Volledige Pluxee import, body: `{ selectedIndices }` |
 
 ### Reimbursements (`/api/reimbursements`)
 | Method | Endpoint | Functie |

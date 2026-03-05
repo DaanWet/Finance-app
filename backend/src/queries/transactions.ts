@@ -35,6 +35,7 @@ export interface TransactionFilters {
   date_from?: string;
   date_to?: string;
   search?: string;
+  source?: string;
 }
 
 const SELECT_FIELDS = `
@@ -73,6 +74,15 @@ export function getTransactions(db: Database.Database, filters: TransactionFilte
   if (filters.search) {
     conditions.push('t.description LIKE ?');
     params.push(`%${filters.search}%`);
+  }
+  if (filters.source === 'ing') {
+    conditions.push("t.ing_transaction_id IS NOT NULL AND t.ing_transaction_id NOT LIKE 'pluxee_%'");
+  } else if (filters.source === 'pluxee') {
+    conditions.push("t.ing_transaction_id LIKE 'pluxee_%'");
+  } else if (filters.source === 'splitwise') {
+    conditions.push('t.splitwise_expense_id IS NOT NULL');
+  } else if (filters.source === 'manual') {
+    conditions.push('t.ing_transaction_id IS NULL AND t.splitwise_expense_id IS NULL');
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

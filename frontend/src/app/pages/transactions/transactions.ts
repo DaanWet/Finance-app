@@ -95,6 +95,7 @@ export class Transactions implements OnInit {
   showImportPreview = signal(false);
   previewLoading = signal(false);
   previewFile: File | null = null;
+  importType: 'ing' | 'pluxee' = 'ing';
   previewDateFrom = signal('');
   previewDateTo = signal('');
 
@@ -133,6 +134,7 @@ export class Transactions implements OnInit {
   filterCategory = '';
   filterOrg = '';
   filterSearch = '';
+  filterSource = '';
   filterDateFrom = '';
   filterDateTo = '';
 
@@ -188,6 +190,7 @@ export class Transactions implements OnInit {
     if (this.filterCategory) filters['category_id'] = this.filterCategory;
     if (this.filterOrg) filters['organization_id'] = this.filterOrg;
     if (this.filterSearch) filters['search'] = this.filterSearch;
+    if (this.filterSource) filters['source'] = this.filterSource;
     if (this.filterDateFrom) filters['date_from'] = this.filterDateFrom;
     if (this.filterDateTo) filters['date_to'] = this.filterDateTo;
 
@@ -500,14 +503,16 @@ export class Transactions implements OnInit {
     this.api.deleteTransaction(tx.id).subscribe(() => this.loadTransactions());
   }
 
-  onFileSelected(event: Event) {
+  onFileSelected(event: Event, type: 'ing' | 'pluxee') {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
     input.value = '';
 
+    this.importType = type;
     this.previewLoading.set(true);
-    this.api.previewIngCsv(file).subscribe({
+    const preview$ = type === 'pluxee' ? this.api.previewPluxeeCsv(file) : this.api.previewIngCsv(file);
+    preview$.subscribe({
       next: ({ rows }) => {
         this.previewFile = file;
         this.previewRows.set(rows);
@@ -547,7 +552,10 @@ export class Transactions implements OnInit {
     this.importLoading.set(true);
     this.importProgress.set({ message: 'Starten...', progress: 0 });
     this.showImportPreview.set(false);
-    this.api.importIngCsv(this.previewFile, indices).subscribe({
+    const import$ = this.importType === 'pluxee'
+      ? this.api.importPluxeeCsv(this.previewFile, indices)
+      : this.api.importIngCsv(this.previewFile, indices);
+    import$.subscribe({
       next: (event) => {
         if (event.result) {
           this.stopProgressTick();

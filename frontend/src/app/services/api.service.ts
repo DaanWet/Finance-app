@@ -173,6 +173,19 @@ export class ApiService {
     return this.streamPost<ImportResult>(`${BASE}/import/ing-csv`, formData);
   }
 
+  previewPluxeeCsv(file: File): Observable<{ rows: CsvPreviewRow[] }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.http.post<{ rows: CsvPreviewRow[] }>(`${BASE}/import/pluxee-csv/preview`, formData);
+  }
+
+  importPluxeeCsv(file: File, selectedIndices: number[]): Observable<StreamProgress<ImportResult>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('selectedIndices', JSON.stringify(selectedIndices));
+    return this.streamPost<ImportResult>(`${BASE}/import/pluxee-csv`, formData);
+  }
+
   // Expenses
   getExpenses(): Observable<ExpensesPageData> {
     return this.http.get<ExpensesPageData>(`${BASE}/expenses`);

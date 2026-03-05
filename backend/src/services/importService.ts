@@ -112,10 +112,10 @@ export async function executeImport(
     date: row.date,
     amount: row.amount,
     counterparty_iban: row.counterparty_account ?? '',
-    counterparty_name: row.raw['Naam van de rekening'] ?? row.raw['Naam'] ?? '',
-    omschrijving: row.raw['Omschrijving'] ?? '',
+    counterparty_name: row.raw['Naam van de rekening'] ?? row.raw['Naam'] ?? row.counterparty_name ?? '',
+    omschrijving: row.raw['Omschrijving'] ?? row.counterparty_name ?? '',
     detail: row.raw['Detail van de omzet'] ?? '',
-    bericht: row.raw['Bericht'] ?? row.raw['Mededeling'] ?? '',
+    bericht: row.raw['Bericht'] ?? row.raw['Mededeling'] ?? row.description ?? '',
   }));
 
   const aiResults = await analyzeTransactions(analysisInputs, { categories, organizations, splitwiseExpenses });
