@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
-import { updateTransaction } from '../queries/transactions';
+import { updateTransaction, getUnreimbursedExpensesForContext } from '../queries/transactions';
 import type { TransactionAnalysisResult, AnalysisContext } from './aiAnalysis';
-import { linkBatchAdvance, findAndLinkAdvance, findAndLinkReverseAdvance } from './advanceMatching';
+import { linkBatchAdvance, linkAdvanceToRepayment, findAndLinkAdvance, findAndLinkReverseAdvance } from './advanceMatching';
 import { matchNmbsTickets } from './importHelpers';
 import type { MatchableTx } from '../helpers/types';
 
@@ -16,11 +16,15 @@ export interface TransactionClassification {
   category_confirmed: number;
 }
 
-/** Load categories + organizations from DB for AI analysis context. */
-export function loadAnalysisContext(db: Database.Database): Pick<AnalysisContext, 'categories' | 'organizations'> {
+/** Load categories + organizations + unreimbursed expenses from DB for AI analysis context. */
+export function loadAnalysisContext(
+  db: Database.Database,
+  options?: { excludeIds?: number[] }
+): Pick<AnalysisContext, 'categories' | 'organizations' | 'unreimbursedExpenses'> {
   const categories = db.prepare('SELECT id, name FROM categories ORDER BY id').all() as { id: number; name: string }[];
   const organizations = db.prepare('SELECT id, name FROM organizations ORDER BY id').all() as { id: number; name: string }[];
-  return { categories, organizations };
+  const unreimbursedExpenses = getUnreimbursedExpensesForContext(db, { excludeIds: options?.excludeIds });
+  return { categories, organizations, unreimbursedExpenses };
 }
 
 /** Normalize a splitwise_expense_id (number|string|null) to a clean string or null. */
@@ -74,6 +78,48 @@ export function applyAiResult(
   });
 }
 
+const AI_MATCH_CONFIDENCE_THRESHOLD = 75;
+
+/** Link AI-detected cross-batch reimbursement matches. */
+function linkAiMatchedReimbursements(
+  db: Database.Database,
+  txs: MatchableTx[],
+  aiResults: TransactionAnalysisResult[],
+  note: string
+): number {
+  let linked = 0;
+  for (const ai of aiResults) {
+    if (ai.matches_existing_id == null || ai.matches_existing_confidence == null) continue;
+
+    const incomeTx = txs[ai.index];
+    if (!incomeTx || incomeTx.amount <= 0) continue;
+
+    const expense = db.prepare(
+      `SELECT id, amount FROM transactions WHERE id = ? AND type = 'reimbursable' AND reimbursed_at IS NULL`
+    ).get(ai.matches_existing_id) as { id: number; amount: number } | undefined;
+    if (!expense) continue;
+
+    if (ai.matches_existing_confidence >= AI_MATCH_CONFIDENCE_THRESHOLD) {
+      linkAdvanceToRepayment(db, {
+        expenseId: expense.id,
+        incomeId: incomeTx.id,
+        amount: Math.abs(expense.amount),
+        reimbursedAt: incomeTx.date,
+        note: `${note} (AI-match, ${ai.matches_existing_confidence}% confidence)`,
+      });
+      linked++;
+    } else {
+      db.prepare(
+        `UPDATE transactions SET notes = CASE WHEN notes IS NOT NULL THEN notes || ' | ' ELSE '' END || ?, updated_at = datetime('now') WHERE id = ?`
+      ).run(
+        `AI-suggestie: mogelijk terugbetaling van tx #${expense.id} (${ai.matches_existing_confidence}% confidence)`,
+        incomeTx.id
+      );
+    }
+  }
+  return linked;
+}
+
 export interface LinkAndMatchOptions {
   db: Database.Database;
   txs: MatchableTx[];
@@ -86,7 +132,7 @@ export interface LinkAndMatchOptions {
  * Shared post-analysis pipeline: batch advance linking, DB-level advance matching,
  * reverse advance matching, and NMBS ticket matching.
  */
-export async function linkAndMatchTransactions(opts: LinkAndMatchOptions): Promise<{ nmbs_matched: number }> {
+export async function linkAndMatchTransactions(opts: LinkAndMatchOptions): Promise<{ nmbs_matched: number; ai_matched: number }> {
   const { db, txs, aiResults, note, onProgress } = opts;
 
   onProgress('Voorschotten koppelen...', 92);
@@ -100,6 +146,12 @@ export async function linkAndMatchTransactions(opts: LinkAndMatchOptions): Promi
       if (!advanceTx || !repaymentTx) continue;
       linkBatchAdvance(db, advanceTx, repaymentTx, `${note} (zelfde batch)`);
     }
+  }
+
+  // Pass 1.5: AI-detected cross-batch reimbursement matches
+  let ai_matched = 0;
+  if (aiResults) {
+    ai_matched = linkAiMatchedReimbursements(db, txs, aiResults, note);
   }
 
   // Pass 2: DB-level advance matching
@@ -116,5 +168,5 @@ export async function linkAndMatchTransactions(opts: LinkAndMatchOptions): Promi
   onProgress('NMBS tickets koppelen...', 96);
   const nmbsResult = await matchNmbsTickets(db, txs.map(t => t.id));
 
-  return { nmbs_matched: nmbsResult.matched };
+  return { nmbs_matched: nmbsResult.matched, ai_matched };
 }

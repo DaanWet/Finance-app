@@ -216,3 +216,38 @@ export function deleteTransactions(db: Database.Database, ids: number[]): number
   `).run(...ids);
   return result.changes;
 }
+
+export interface UnreimbursedExpenseContext {
+  id: number;
+  date: string;
+  amount: number;
+  description: string;
+  counterparty_name: string | null;
+  organization_name: string | null;
+}
+
+export function getUnreimbursedExpensesForContext(
+  db: Database.Database,
+  options?: { limit?: number; excludeIds?: number[] }
+): UnreimbursedExpenseContext[] {
+  const limit = options?.limit ?? 150;
+  const excludeIds = options?.excludeIds ?? [];
+
+  let query = `
+    SELECT t.id, t.date, t.amount, t.description, t.counterparty_name, o.name AS organization_name
+    FROM transactions t
+    LEFT JOIN organizations o ON t.organization_id = o.id
+    WHERE t.type = 'reimbursable' AND t.reimbursed_at IS NULL
+  `;
+  const params: (string | number)[] = [];
+
+  if (excludeIds.length > 0) {
+    query += ` AND t.id NOT IN (${excludeIds.map(() => '?').join(',')})`;
+    params.push(...excludeIds);
+  }
+
+  query += ` ORDER BY t.date DESC LIMIT ?`;
+  params.push(limit);
+
+  return db.prepare(query).all(...params) as UnreimbursedExpenseContext[];
+}

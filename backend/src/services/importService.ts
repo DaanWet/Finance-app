@@ -92,7 +92,7 @@ export async function executeImport(
   onProgress: (msg: string, progress: number) => void
 ) {
   onProgress('CSV verwerken...', 5);
-  const { categories, organizations } = loadAnalysisContext(db);
+  const { categories, organizations, unreimbursedExpenses } = loadAnalysisContext(db);
 
   const rowsToAnalyze = rows
     .map((row, i) => ({ row, i }))
@@ -118,7 +118,7 @@ export async function executeImport(
     bericht: row.raw['Bericht'] ?? row.raw['Mededeling'] ?? row.description ?? '',
   }));
 
-  const aiResults = await analyzeTransactions(analysisInputs, { categories, organizations, splitwiseExpenses });
+  const aiResults = await analyzeTransactions(analysisInputs, { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
   const aiAnalyzed = aiResults !== null;
 
   onProgress('Transacties opslaan...', 80);
@@ -150,7 +150,7 @@ export async function executeImport(
     indexedTxs[idx] = tx;
   }
 
-  const { nmbs_matched } = await linkAndMatchTransactions({
+  const { nmbs_matched, ai_matched } = await linkAndMatchTransactions({
     db, txs: indexedTxs, aiResults,
     note: 'Automatisch gedetecteerd bij import',
     onProgress,
@@ -161,6 +161,7 @@ export async function executeImport(
     total: selectedSet ? selectedSet.size : rows.length,
     ai_analyzed: aiAnalyzed,
     nmbs_matched,
+    ai_matched,
     transactions: importedRows,
   };
 }

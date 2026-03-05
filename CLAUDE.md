@@ -58,7 +58,7 @@ frontend/src/app/
 - Oud: `Datum;Naam;Rekening;Tegenrekening;Code;Afschrijving;Bijschrijving;Mededeling`
 - Preview-endpoint: `POST /api/import/ing-csv/preview`
 - Import-endpoint: `POST /api/import/ing-csv` met `{ selectedIndices: number[] | null }`
-- 4-pass algoritme: (1) opslaan + AI, (2) within-batch voorschot-linking, (3) DB-niveau voorschot-matching, (4) NMBS ticket matching
+- 5-pass algoritme: (1) opslaan + AI, (1.5) AI cross-batch terugbetaling-matching, (2) within-batch voorschot-linking, (3) DB-niveau voorschot-matching, (4) NMBS ticket matching
 
 ## CSV import (Pluxee)
 - Separator: `;`, kolommen: `Datum;Beschrijving;Bedrag`
@@ -68,13 +68,13 @@ frontend/src/app/
 - Transaction ID: `pluxee_<uuid>` (opgeslagen in `ing_transaction_id`)
 - Preview-endpoint: `POST /api/import/pluxee-csv/preview`
 - Import-endpoint: `POST /api/import/pluxee-csv` met `{ selectedIndices: number[] | null }`
-- Hergebruikt dezelfde 4-pass import flow als ING (incl. AI-analyse)
+- Hergebruikt dezelfde 5-pass import flow als ING (incl. AI-analyse)
 
 ## AI analyse
 - Model: claude-opus-4-6, env var `ANTHROPIC_API_KEY`
 - Input per tx: index, date, amount, counterparty_iban, counterparty_name, omschrijving, detail, bericht
-- Context: categories[], organizations[], splitwiseExpenses[]
-- Output per tx: readable_name, category_id, organization_id, type, is_advance, advance_repaid_by_index, splitwise_expense_id, notes
+- Context: categories[], organizations[], splitwiseExpenses[], unreimbursedExpenses[] (alle onterugbetaalde uitgaven uit DB, max 150)
+- Output per tx: readable_name, category_id, organization_id, type, is_advance, advance_repaid_by_index, splitwise_expense_id, notes, matches_existing_id, matches_existing_confidence
 - category_confirmed = 0 bij AI-classificatie, 1 bij handmatig/rules
 - Fallback: classification rules (patroonmatch op description)
 - Splitwise matching: bedrag binnen 5%, datum binnen 7 dagen
@@ -89,6 +89,7 @@ frontend/src/app/
 
 ## Voorschot-detectie
 - Within-batch: AI geeft `advance_repaid_by_index` → reimbursed_at = terugbetalingsdatum + reimbursement_link
+- Cross-batch AI-matching: AI krijgt onterugbetaalde uitgaven als context → `matches_existing_id` + `matches_existing_confidence` (0-100). Bij confidence ≥75: auto-link via `linkAdvanceToRepayment()`. Bij <75: suggestie in notes voor handmatige review.
 - DB-niveau: positieve tx + zelfde counterparty_account + bedrag <10% verschil → auto-reimbursed + reimbursement_link
 
 ## Reimbursement linking

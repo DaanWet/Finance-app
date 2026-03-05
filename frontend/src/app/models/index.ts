@@ -130,6 +130,7 @@ export interface ImportResult {
   skipped: number;
   total: number;
   ai_analyzed?: boolean;
+  ai_matched?: number;
   transactions: Transaction[];
 }
 

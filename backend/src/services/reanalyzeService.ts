@@ -23,7 +23,8 @@ export async function reanalyzeBulk(
   onProgress: (msg: string, progress: number) => void
 ) {
   onProgress('Data laden...', 5);
-  const { categories, organizations } = loadAnalysisContext(db);
+  const txIds = txs.map(t => t.id);
+  const { categories, organizations, unreimbursedExpenses } = loadAnalysisContext(db, { excludeIds: txIds });
 
   onProgress('Splitwise data ophalen...', 10);
   const earliestDate = txs.reduce((min, tx) => tx.date < min ? tx.date : min, txs[0].date);
@@ -32,7 +33,7 @@ export async function reanalyzeBulk(
   onProgress('AI-analyse uitvoeren...', 15);
   const inputs = txs.map((tx, idx) => buildReanalyzeInput(tx, idx));
 
-  const aiResults = await analyzeTransactions(inputs, { categories, organizations, splitwiseExpenses });
+  const aiResults = await analyzeTransactions(inputs, { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
   if (!aiResults || aiResults.length === 0) {
     return null;
   }
@@ -51,7 +52,7 @@ export async function reanalyzeBulk(
     onProgress,
   });
 
-  const updated = getTransactionsByIds(db, txs.map(t => t.id));
+  const updated = getTransactionsByIds(db, txIds);
   return { reanalyzed: updated.length, transactions: updated };
 }
 
@@ -59,21 +60,21 @@ export async function reanalyzeSingle(
   db: Database.Database,
   tx: { id: number; date: string; amount: number; description: string; counterparty_account: string | null }
 ) {
-  const { categories, organizations } = loadAnalysisContext(db);
+  const { categories, organizations, unreimbursedExpenses } = loadAnalysisContext(db, { excludeIds: [tx.id] });
   const splitwiseExpenses = await fetchSplitwiseExpenses(tx.date);
 
   const input = buildReanalyzeInput(tx, 0);
-  const aiResults = await analyzeTransactions([input], { categories, organizations, splitwiseExpenses });
+  const aiResults = await analyzeTransactions([input], { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
   if (!aiResults || aiResults.length === 0) {
     return null;
   }
 
   applyAiResult(db, tx.id, aiResults[0], splitwiseExpenses, tx.description);
 
-  // For single reanalyze, use the shared pipeline (handles advance + NMBS matching)
+  // For single reanalyze, use the shared pipeline (handles advance + NMBS + AI matching)
   const noopProgress = () => {};
   await linkAndMatchTransactions({
-    db, txs: [tx], aiResults: null,
+    db, txs: [tx], aiResults,
     note: 'Automatisch gedetecteerd bij heranalyse',
     onProgress: noopProgress,
   });

@@ -2,8 +2,23 @@ import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
-import { Transaction, Organization, Category, TransactionType, ImportResult, CsvPreviewRow, SplitwiseExpense, ReimbursementLink, ExpenseCandidateTransaction, IncomeCandidateTransaction } from '../../models';
-import { formatEur as _formatEur, formatDate as _formatDate, typeBadge as _typeBadge } from '../../utils/format';
+import {
+  Transaction,
+  Organization,
+  Category,
+  TransactionType,
+  ImportResult,
+  CsvPreviewRow,
+  SplitwiseExpense,
+  ReimbursementLink,
+  ExpenseCandidateTransaction,
+  IncomeCandidateTransaction,
+} from '../../models';
+import {
+  formatEur as _formatEur,
+  formatDate as _formatDate,
+  typeBadge as _typeBadge,
+} from '../../utils/format';
 
 @Component({
   selector: 'app-transactions',
@@ -22,7 +37,9 @@ export class Transactions implements OnInit {
   importLoading = signal(false);
   importProgress = signal<{ message: string; progress: number } | null>(null);
   bulkProgress = signal<{ message: string; progress: number } | null>(null);
-  unconfirmedCount = computed(() => this.transactions().filter(tx => tx.category_confirmed === 0).length);
+  unconfirmedCount = computed(
+    () => this.transactions().filter((tx) => tx.category_confirmed === 0).length,
+  );
   reanalyzingId = signal<number | null>(null);
   splitwiseExpenses = signal<SplitwiseExpense[]>([]);
   splitwiseLoading = signal(false);
@@ -38,20 +55,20 @@ export class Transactions implements OnInit {
   bulkSelectedCount = computed(() => this.selectedIds().size);
   isAllPageSelected = computed(() => {
     const txs = this.transactions();
-    return txs.length > 0 && txs.every(tx => this.selectedIds().has(tx.id));
+    return txs.length > 0 && txs.every((tx) => this.selectedIds().has(tx.id));
   });
   isSomeSelected = computed(() => {
     const selected = this.selectedIds();
     const txs = this.transactions();
-    return selected.size > 0 && !txs.every(tx => selected.has(tx.id));
+    return selected.size > 0 && !txs.every((tx) => selected.has(tx.id));
   });
   selectedUnconfirmedCount = computed(() => {
     const ids = this.selectedIds();
-    return this.transactions().filter(tx => ids.has(tx.id) && tx.category_confirmed === 0).length;
+    return this.transactions().filter((tx) => ids.has(tx.id) && tx.category_confirmed === 0).length;
   });
 
-  splitwiseExpenseMap = computed(() =>
-    new Map(this.splitwiseExpenses().map(e => [e.id.toString(), e]))
+  splitwiseExpenseMap = computed(
+    () => new Map(this.splitwiseExpenses().map((e) => [e.id.toString(), e])),
   );
 
   getSplitwiseExpense(id: string | number | null | undefined): SplitwiseExpense | undefined {
@@ -67,21 +84,22 @@ export class Transactions implements OnInit {
     const showAll = this.splitwiseShowAll();
     const currentId = this.formSplitwiseId();
 
-    let list = all.filter(e => e.my_paid_share > 0);
+    let list = all.filter((e) => e.my_paid_share > 0);
     if (search) {
-      list = list.filter(e =>
-        e.description.toLowerCase().includes(search) ||
-        e.my_paid_share.toString().includes(search)
+      list = list.filter(
+        (e) =>
+          e.description.toLowerCase().includes(search) ||
+          e.my_paid_share.toString().includes(search),
       );
     } else if (!showAll && amount > 0) {
-      list = list.filter(e => Math.abs(e.my_paid_share - amount) / amount <= 0.1);
+      list = list.filter((e) => Math.abs(e.my_paid_share - amount) / amount <= 0.1);
     }
 
     // Altijd de huidige gekoppelde expense tonen
     if (currentId != null) {
       const normalized = String(parseInt(String(currentId), 10));
-      if (!list.some(e => String(e.id) === normalized)) {
-        const linked = all.find(e => String(e.id) === normalized);
+      if (!list.some((e) => String(e.id) === normalized)) {
+        const linked = all.find((e) => String(e.id) === normalized);
         if (linked) list = [linked, ...list];
       }
     }
@@ -104,20 +122,23 @@ export class Transactions implements OnInit {
     const from = this.previewDateFrom();
     const to = this.previewDateTo();
     if (!from && !to) return rows;
-    return rows.filter(r => (!from || r.date >= from) && (!to || r.date <= to));
+    return rows.filter((r) => (!from || r.date >= from) && (!to || r.date <= to));
   });
 
   selectedCount = computed(() => this.selectedIndices().size);
-  totalSelectableCount = computed(() => this.previewRows().filter(r => !r.duplicate).length);
-  selectableCount = computed(() => this.filteredPreviewRows().filter(r => !r.duplicate).length);
-  duplicateCount = computed(() => this.filteredPreviewRows().filter(r => r.duplicate).length);
+  totalSelectableCount = computed(() => this.previewRows().filter((r) => !r.duplicate).length);
+  selectableCount = computed(() => this.filteredPreviewRows().filter((r) => !r.duplicate).length);
+  duplicateCount = computed(() => this.filteredPreviewRows().filter((r) => r.duplicate).length);
   isAllSelected = computed(() => {
-    const visible = this.filteredPreviewRows().filter(r => !r.duplicate);
-    return visible.length > 0 && visible.every(r => this.selectedIndices().has(r.index));
+    const visible = this.filteredPreviewRows().filter((r) => !r.duplicate);
+    return visible.length > 0 && visible.every((r) => this.selectedIndices().has(r.index));
   });
 
   // Reimbursement links (in edit modal)
-  editLinks = signal<{ as_income: ReimbursementLink[]; as_expense: ReimbursementLink[] }>({ as_income: [], as_expense: [] });
+  editLinks = signal<{ as_income: ReimbursementLink[]; as_expense: ReimbursementLink[] }>({
+    as_income: [],
+    as_expense: [],
+  });
   expenseCandidates = signal<ExpenseCandidateTransaction[]>([]);
   showAddExpenseLink = signal(false);
   linkingExpenseId = signal<number | null>(null);
@@ -177,8 +198,8 @@ export class Transactions implements OnInit {
 
   loadAll() {
     this.loading.set(true);
-    this.api.getOrganizations().subscribe(orgs => this.organizations.set(orgs));
-    this.api.getCategories().subscribe(cats => this.categories.set(cats));
+    this.api.getOrganizations().subscribe((orgs) => this.organizations.set(orgs));
+    this.api.getCategories().subscribe((cats) => this.categories.set(cats));
     this.loadSplitwiseExpenses();
     this.loadTransactions();
   }
@@ -195,7 +216,10 @@ export class Transactions implements OnInit {
     if (this.filterDateTo) filters['date_to'] = this.filterDateTo;
 
     this.api.getTransactions(filters).subscribe({
-      next: txs => { this.transactions.set(txs); this.loading.set(false); },
+      next: (txs) => {
+        this.transactions.set(txs);
+        this.loading.set(false);
+      },
       error: () => this.loading.set(false),
     });
   }
@@ -227,9 +251,10 @@ export class Transactions implements OnInit {
       category_id: tx.category_id,
       organization_id: tx.organization_id,
       notes: tx.notes ?? '',
-      splitwise_expense_id: tx.splitwise_expense_id != null
-        ? String(parseInt(String(tx.splitwise_expense_id), 10))
-        : null,
+      splitwise_expense_id:
+        tx.splitwise_expense_id != null
+          ? String(parseInt(String(tx.splitwise_expense_id), 10))
+          : null,
     };
     this.formAmount.set(tx.amount);
     this.formSplitwiseId.set(this.form.splitwise_expense_id ?? null);
@@ -255,38 +280,50 @@ export class Transactions implements OnInit {
     this.splitwiseDetail.set(this.getSplitwiseExpense(tx.splitwise_expense_id) ?? null);
   }
 
-  participantName(p: { user_id: number; first_name: string | null; last_name: string | null }): string {
+  participantName(p: {
+    user_id: number;
+    first_name: string | null;
+    last_name: string | null;
+  }): string {
     const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
     return name || `Deelnemer #${p.user_id}`;
   }
 
   loadSplitwiseExpenses() {
-    if (this.splitwiseExpenses().length > 0 || this.splitwiseLoading()) return;
+    if (this.splitwiseLoading()) return;
     this.splitwiseLoading.set(true);
-    const sixMonthsAgo = new Date();
+    const sixMonthsAgo = new Date(this.form.date ?? new Date());
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     const dated_after = sixMonthsAgo.toISOString().split('T')[0];
     this.api.getSplitwiseExpenses(dated_after).subscribe({
-      next: (expenses) => { this.splitwiseExpenses.set(expenses); this.splitwiseLoading.set(false); },
+      next: (expenses) => {
+        this.splitwiseExpenses.set(expenses);
+        this.splitwiseLoading.set(false);
+      },
       error: () => this.splitwiseLoading.set(false),
     });
   }
 
   confirmTransaction(tx: Transaction) {
-    this.api.updateTransaction(tx.id, { category_confirmed: 1 } as Partial<Transaction>).subscribe(() => {
-      this.transactions.update(txs => txs.map(t => t.id === tx.id ? { ...t, category_confirmed: 1 } : t));
-    });
+    this.api
+      .updateTransaction(tx.id, { category_confirmed: 1 } as Partial<Transaction>)
+      .subscribe(() => {
+        this.transactions.update((txs) =>
+          txs.map((t) => (t.id === tx.id ? { ...t, category_confirmed: 1 } : t)),
+        );
+      });
   }
 
   confirmAll() {
     this.api.confirmAllTransactions().subscribe(() => {
-      this.transactions.update(txs => txs.map(t => ({ ...t, category_confirmed: 1 })));
+      this.transactions.update((txs) => txs.map((t) => ({ ...t, category_confirmed: 1 })));
     });
   }
 
   toggleSelection(id: number) {
     const set = new Set(this.selectedIds());
-    if (set.has(id)) set.delete(id); else set.add(id);
+    if (set.has(id)) set.delete(id);
+    else set.add(id);
     this.selectedIds.set(set);
   }
 
@@ -294,9 +331,9 @@ export class Transactions implements OnInit {
     const txs = this.transactions();
     const cur = new Set(this.selectedIds());
     if (this.isAllPageSelected()) {
-      txs.forEach(tx => cur.delete(tx.id));
+      txs.forEach((tx) => cur.delete(tx.id));
     } else {
-      txs.forEach(tx => cur.add(tx.id));
+      txs.forEach((tx) => cur.add(tx.id));
     }
     this.selectedIds.set(cur);
   }
@@ -311,8 +348,8 @@ export class Transactions implements OnInit {
     this.bulkLoading.set(true);
     this.api.bulkConfirm(ids).subscribe({
       next: () => {
-        this.transactions.update(txs =>
-          txs.map(t => ids.includes(t.id) ? { ...t, category_confirmed: 1 } : t)
+        this.transactions.update((txs) =>
+          txs.map((t) => (ids.includes(t.id) ? { ...t, category_confirmed: 1 } : t)),
         );
         this.clearSelection();
         this.bulkLoading.set(false);
@@ -331,7 +368,7 @@ export class Transactions implements OnInit {
     this.bulkLoading.set(true);
     this.api.bulkDelete(ids).subscribe({
       next: () => {
-        this.transactions.update(txs => txs.filter(t => !ids.includes(t.id)));
+        this.transactions.update((txs) => txs.filter((t) => !ids.includes(t.id)));
         this.clearSelection();
         this.bulkLoading.set(false);
       },
@@ -351,10 +388,8 @@ export class Transactions implements OnInit {
       next: (event) => {
         if (event.result) {
           this.stopProgressTick();
-          const updatedMap = new Map(event.result.transactions.map(t => [t.id, t]));
-          this.transactions.update(txs =>
-            txs.map(t => updatedMap.get(t.id) ?? t)
-          );
+          const updatedMap = new Map(event.result.transactions.map((t) => [t.id, t]));
+          this.transactions.update((txs) => txs.map((t) => updatedMap.get(t.id) ?? t));
           this.clearSelection();
           this.bulkLoading.set(false);
           this.bulkProgress.set(null);
@@ -380,7 +415,9 @@ export class Transactions implements OnInit {
     this.reanalyzingId.set(tx.id);
     this.api.reanalyzeTransaction(tx.id).subscribe({
       next: (updated) => {
-        this.transactions.update(txs => txs.map(t => t.id === tx.id ? { ...t, ...updated } : t));
+        this.transactions.update((txs) =>
+          txs.map((t) => (t.id === tx.id ? { ...t, ...updated } : t)),
+        );
         this.reanalyzingId.set(null);
       },
       error: () => {
@@ -392,7 +429,7 @@ export class Transactions implements OnInit {
 
   // --- Reimbursement links ---
   loadLinks(txId: number) {
-    this.api.getReimbursementLinks(txId).subscribe(links => {
+    this.api.getReimbursementLinks(txId).subscribe((links) => {
       this.editLinks.set(links);
     });
   }
@@ -401,14 +438,14 @@ export class Transactions implements OnInit {
     this.showAddExpenseLink.set(true);
     this.linkingExpenseId.set(null);
     this.linkingAmount.set(0);
-    this.api.getExpenseCandidates().subscribe(candidates => {
+    this.api.getExpenseCandidates().subscribe((candidates) => {
       this.expenseCandidates.set(candidates);
     });
   }
 
   selectExpenseCandidate(expId: number) {
     this.linkingExpenseId.set(expId);
-    const candidate = this.expenseCandidates().find(c => c.id === expId);
+    const candidate = this.expenseCandidates().find((c) => c.id === expId);
     if (candidate) this.linkingAmount.set(Math.abs(candidate.amount));
   }
 
@@ -418,24 +455,28 @@ export class Transactions implements OnInit {
     if (!incomeId || !expenseId) return;
 
     this.linkSaving.set(true);
-    this.api.linkIncomeToExpenses({
-      income_transaction_id: incomeId,
-      expenses: [{ expense_transaction_id: expenseId, amount: this.linkingAmount() }],
-    }).subscribe({
-      next: () => {
-        this.linkSaving.set(false);
-        this.showAddExpenseLink.set(false);
-        this.loadLinks(incomeId);
-      },
-      error: () => this.linkSaving.set(false),
-    });
+    this.api
+      .linkIncomeToExpenses({
+        income_transaction_id: incomeId,
+        expenses: [{ expense_transaction_id: expenseId, amount: this.linkingAmount() }],
+      })
+      .subscribe({
+        next: () => {
+          this.linkSaving.set(false);
+          this.showAddExpenseLink.set(false);
+          this.loadLinks(incomeId);
+        },
+        error: () => this.linkSaving.set(false),
+      });
   }
 
   removeExpenseLink(link: ReimbursementLink) {
-    this.api.unlinkExpense(link.income_transaction_id, link.expense_transaction_id).subscribe(() => {
-      const txId = this.editingTx()?.id;
-      if (txId) this.loadLinks(txId);
-    });
+    this.api
+      .unlinkExpense(link.income_transaction_id, link.expense_transaction_id)
+      .subscribe(() => {
+        const txId = this.editingTx()?.id;
+        if (txId) this.loadLinks(txId);
+      });
   }
 
   linkedTotal(): number {
@@ -448,7 +489,7 @@ export class Transactions implements OnInit {
     this.selectedIncomeId.set(null);
     const tx = this.editingTx();
     this.linkingIncomeAmount.set(tx ? Math.abs(tx.amount) : 0);
-    this.api.getIncomeCandidates().subscribe(candidates => {
+    this.api.getIncomeCandidates().subscribe((candidates) => {
       this.incomeCandidates.set(candidates);
     });
   }
@@ -459,17 +500,19 @@ export class Transactions implements OnInit {
     if (!expenseId || !incomeId) return;
 
     this.linkSaving.set(true);
-    this.api.linkIncomeToExpenses({
-      income_transaction_id: incomeId,
-      expenses: [{ expense_transaction_id: expenseId, amount: this.linkingIncomeAmount() }],
-    }).subscribe({
-      next: () => {
-        this.linkSaving.set(false);
-        this.showAddIncomeLink.set(false);
-        this.loadLinks(expenseId);
-      },
-      error: () => this.linkSaving.set(false),
-    });
+    this.api
+      .linkIncomeToExpenses({
+        income_transaction_id: incomeId,
+        expenses: [{ expense_transaction_id: expenseId, amount: this.linkingIncomeAmount() }],
+      })
+      .subscribe({
+        next: () => {
+          this.linkSaving.set(false);
+          this.showAddIncomeLink.set(false);
+          this.loadLinks(expenseId);
+        },
+        error: () => this.linkSaving.set(false),
+      });
   }
 
   save() {
@@ -511,12 +554,13 @@ export class Transactions implements OnInit {
 
     this.importType = type;
     this.previewLoading.set(true);
-    const preview$ = type === 'pluxee' ? this.api.previewPluxeeCsv(file) : this.api.previewIngCsv(file);
+    const preview$ =
+      type === 'pluxee' ? this.api.previewPluxeeCsv(file) : this.api.previewIngCsv(file);
     preview$.subscribe({
       next: ({ rows }) => {
         this.previewFile = file;
         this.previewRows.set(rows);
-        this.selectedIndices.set(new Set(rows.filter(r => !r.duplicate).map(r => r.index)));
+        this.selectedIndices.set(new Set(rows.filter((r) => !r.duplicate).map((r) => r.index)));
         this.previewDateFrom.set('');
         this.previewDateTo.set('');
         this.previewLoading.set(false);
@@ -531,17 +575,18 @@ export class Transactions implements OnInit {
 
   toggleRow(index: number) {
     const set = new Set(this.selectedIndices());
-    if (set.has(index)) set.delete(index); else set.add(index);
+    if (set.has(index)) set.delete(index);
+    else set.add(index);
     this.selectedIndices.set(set);
   }
 
   toggleAll() {
-    const visible = this.filteredPreviewRows().filter(r => !r.duplicate);
+    const visible = this.filteredPreviewRows().filter((r) => !r.duplicate);
     const cur = new Set(this.selectedIndices());
     if (this.isAllSelected()) {
-      visible.forEach(r => cur.delete(r.index));
+      visible.forEach((r) => cur.delete(r.index));
     } else {
-      visible.forEach(r => cur.add(r.index));
+      visible.forEach((r) => cur.add(r.index));
     }
     this.selectedIndices.set(cur);
   }
@@ -552,9 +597,10 @@ export class Transactions implements OnInit {
     this.importLoading.set(true);
     this.importProgress.set({ message: 'Starten...', progress: 0 });
     this.showImportPreview.set(false);
-    const import$ = this.importType === 'pluxee'
-      ? this.api.importPluxeeCsv(this.previewFile, indices)
-      : this.api.importIngCsv(this.previewFile, indices);
+    const import$ =
+      this.importType === 'pluxee'
+        ? this.api.importPluxeeCsv(this.previewFile, indices)
+        : this.api.importIngCsv(this.previewFile, indices);
     import$.subscribe({
       next: (event) => {
         if (event.result) {
@@ -583,7 +629,9 @@ export class Transactions implements OnInit {
     });
   }
 
-  formatEur(amount: number): string { return _formatEur(Math.abs(amount)); }
+  formatEur(amount: number): string {
+    return _formatEur(Math.abs(amount));
+  }
   formatDate = _formatDate;
   typeBadge = _typeBadge;
 }
