@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { DashboardSummary, SplitwiseBalance } from '../../models';
+import { formatEur } from '../../utils/format';
 
 @Component({
   selector: 'app-dashboard',
@@ -103,9 +104,7 @@ export class Dashboard implements OnInit {
     }
   }
 
-  formatEur(amount: number): string {
-    return new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(amount);
-  }
+  formatEur = formatEur;
 
   get categoryColors(): string[] {
     return this.summary()?.byCategory.map((c) => c.color) ?? [];

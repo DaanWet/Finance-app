@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { SplitwiseExpense, SplitwiseBalance } from '../../models';
+import { formatEur as _formatEur, formatDate as _formatDate } from '../../utils/format';
 
 @Component({
   selector: 'app-splitwise',
@@ -65,11 +66,6 @@ export class Splitwise implements OnInit {
       .reduce((sum, b) => sum + parseFloat(b.balance), 0);
   }
 
-  formatEur(amount: number): string {
-    return new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(Math.abs(amount));
-  }
-
-  formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
+  formatEur(amount: number): string { return _formatEur(Math.abs(amount)); }
+  formatDate = _formatDate;
 }

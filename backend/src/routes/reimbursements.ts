@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../db';
+import { errorMessage } from '../helpers/errors';
 import { getOutstandingReimbursements, getReceivedReimbursements, markReimbursed } from '../queries/reimbursements';
 import {
   linkIncomeToExpenses,
@@ -37,8 +38,8 @@ router.post('/link', (req: Request, res: Response) => {
   try {
     const links = linkIncomeToExpenses(getDb(), income_transaction_id, expenses);
     res.json({ links });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  } catch (err: unknown) {
+    res.status(400).json({ error: errorMessage(err) });
   }
 });
 

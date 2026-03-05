@@ -5,6 +5,8 @@ import puppeteer from 'puppeteer';
 import path from 'path';
 import fs from 'fs';
 import { getDb } from '../db';
+import { getSetting, upsertSetting } from '../helpers/settings';
+import { SETTING_KEYS } from '../helpers/constants';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
@@ -28,29 +30,19 @@ export function getAuthUrl(): string {
 export async function exchangeCode(code: string): Promise<void> {
   const oauth2Client = getOAuthClient();
   const { tokens } = await oauth2Client.getToken(code);
-  const db = getDb();
-  const upsert = db.prepare(
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-  );
-  if (tokens.refresh_token) upsert.run('google_refresh_token', tokens.refresh_token);
-  if (tokens.access_token) upsert.run('google_access_token', tokens.access_token);
+  if (tokens.refresh_token) upsertSetting(SETTING_KEYS.GOOGLE_REFRESH_TOKEN, tokens.refresh_token);
+  if (tokens.access_token) upsertSetting(SETTING_KEYS.GOOGLE_ACCESS_TOKEN, tokens.access_token);
 }
 
 export function isGmailConnected(): boolean {
-  const db = getDb();
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('google_refresh_token') as { value: string } | undefined;
-  return !!row?.value;
+  return !!getSetting(SETTING_KEYS.GOOGLE_REFRESH_TOKEN);
 }
 
 function buildAuthClient(): OAuth2Client {
-  const db = getDb();
-  const getSetting = (key: string): string | undefined =>
-    (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
-
   const oauth2Client = getOAuthClient();
   oauth2Client.setCredentials({
-    refresh_token: getSetting('google_refresh_token'),
-    access_token: getSetting('google_access_token'),
+    refresh_token: getSetting(SETTING_KEYS.GOOGLE_REFRESH_TOKEN),
+    access_token: getSetting(SETTING_KEYS.GOOGLE_ACCESS_TOKEN),
   });
   return oauth2Client;
 }
@@ -207,6 +199,56 @@ function collectAttachmentParts(parts: any[] | undefined): any[] {
   return result;
 }
 
+/** Extract HTML body from a Gmail message payload (handles nested multipart). */
+function extractHtmlBody(payload: { mimeType?: string | null; body?: { data?: string | null }; parts?: any[] }): string {
+  if (payload.mimeType === 'text/html' && payload.body?.data) {
+    return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+  }
+  if (!payload.parts) return '';
+  for (const part of payload.parts) {
+    if (part.mimeType === 'text/html' && part.body?.data) {
+      return Buffer.from(part.body.data, 'base64').toString('utf-8');
+    }
+    if (part.parts) {
+      const nested = extractHtmlBody(part);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+/** Inline CID image references in HTML with base64 data URIs from email parts + attachments. */
+async function inlineCidImages(
+  htmlBody: string,
+  payload: { parts?: any[] },
+  gmail: ReturnType<typeof google.gmail>,
+  messageId: string
+): Promise<string> {
+  // Inline images already embedded in the message parts
+  const inlineImages = collectInlineImages(payload.parts);
+  if (inlineImages.size > 0) {
+    htmlBody = htmlBody.replace(/cid:([^"'\s]+)/g, (match, cid) => inlineImages.get(cid) ?? match);
+  }
+
+  // Fetch attachment data for images referenced by attachmentId
+  const attachmentParts = collectAttachmentParts(payload.parts);
+  for (const part of attachmentParts) {
+    const cidHeader = part.headers?.find((h: any) => h.name?.toLowerCase() === 'content-id');
+    const cleanCid = cidHeader.value.replace(/[<>]/g, '');
+    if (htmlBody.includes(`cid:${cleanCid}`)) {
+      const attRes = await gmail.users.messages.attachments.get({
+        userId: 'me', messageId, id: part.body.attachmentId,
+      });
+      if (attRes.data.data) {
+        const dataUri = `data:${part.mimeType};base64,${gmailB64ToStandard(attRes.data.data)}`;
+        htmlBody = htmlBody.replace(new RegExp(`cid:${cleanCid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), dataUri);
+      }
+    }
+  }
+
+  return htmlBody;
+}
+
 export async function fetchNmbsTickets(dateFrom: string, dateTo: string): Promise<FetchedTicket[]> {
   const auth = buildAuthClient();
   const gmail = google.gmail({ version: 'v1', auth });
@@ -217,7 +259,6 @@ export async function fetchNmbsTickets(dateFrom: string, dateTo: string): Promis
   const nextDay = new Date(Number(beforeParts[0]), Number(beforeParts[1]) - 1, Number(beforeParts[2]) + 1);
   const beforeDate = `${nextDay.getFullYear()}/${String(nextDay.getMonth() + 1).padStart(2, '0')}/${String(nextDay.getDate()).padStart(2, '0')}`;
 
-  // Broad query to catch NMBS/SNCB ticket emails
   const query = [
     `(from:noreply@b-rail.be OR from:info@nmbs.be OR from:noreply@sncb.be`,
     ` OR from:eticket@nmbs.be OR from:no-reply@sales.belgiantrain.be`,
@@ -235,7 +276,6 @@ export async function fetchNmbsTickets(dateFrom: string, dateTo: string): Promis
   for (const msg of messages) {
     if (!msg.id) continue;
 
-    // Skip already imported
     const existing = db.prepare('SELECT id FROM expense_receipts WHERE gmail_message_id = ?').get(msg.id);
     if (existing) continue;
 
@@ -249,51 +289,10 @@ export async function fetchNmbsTickets(dateFrom: string, dateTo: string): Promis
       ? new Date(Number(emailDateMs)).toISOString().split('T')[0]
       : undefined;
 
-    // Extract HTML body (could be nested in multipart)
-    let htmlBody = '';
-    const findHtml = (parts: typeof payload.parts): string => {
-      if (!parts) return '';
-      for (const part of parts) {
-        if (part.mimeType === 'text/html' && part.body?.data) {
-          return Buffer.from(part.body.data, 'base64').toString('utf-8');
-        }
-        if (part.parts) {
-          const nested = findHtml(part.parts);
-          if (nested) return nested;
-        }
-      }
-      return '';
-    };
-
-    if (payload.mimeType === 'text/html' && payload.body?.data) {
-      htmlBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-    } else {
-      htmlBody = findHtml(payload.parts ?? []);
-    }
-
+    let htmlBody = extractHtmlBody(payload);
     if (!htmlBody) continue;
 
-    // Replace cid: image references with inline base64 data URIs
-    const inlineImages = collectInlineImages(payload.parts);
-    if (inlineImages.size > 0) {
-      htmlBody = htmlBody.replace(/cid:([^"'\s]+)/g, (match, cid) => inlineImages.get(cid) ?? match);
-    }
-
-    // Fetch attachment data for images referenced by attachmentId (recursive)
-    const attachmentParts = collectAttachmentParts(payload.parts);
-    for (const part of attachmentParts) {
-      const cidHeader = part.headers?.find((h: any) => h.name?.toLowerCase() === 'content-id');
-      const cleanCid = cidHeader.value.replace(/[<>]/g, '');
-      if (htmlBody.includes(`cid:${cleanCid}`)) {
-        const attRes = await gmail.users.messages.attachments.get({
-          userId: 'me', messageId: msg.id!, id: part.body.attachmentId,
-        });
-        if (attRes.data.data) {
-          const dataUri = `data:${part.mimeType};base64,${gmailB64ToStandard(attRes.data.data)}`;
-          htmlBody = htmlBody.replace(new RegExp(`cid:${cleanCid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'), dataUri);
-        }
-      }
-    }
+    htmlBody = await inlineCidImages(htmlBody, payload, gmail, msg.id);
 
     const parsed = parseNmbsHtml(htmlBody, subject, emailDate);
     const ticket: NmbsTicket = {
@@ -306,7 +305,6 @@ export async function fetchNmbsTickets(dateFrom: string, dateTo: string): Promis
       raw_subject: subject,
     };
 
-    // Skip emails where no valid amount was found (not a real ticket)
     if (ticket.amount <= 0) continue;
 
     const pdfBuffer = await emailHtmlToPdf(htmlBody);

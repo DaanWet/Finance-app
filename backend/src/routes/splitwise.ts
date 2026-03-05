@@ -1,49 +1,32 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db';
+import { getSetting, upsertSetting } from '../helpers/settings';
+import { SETTING_KEYS } from '../helpers/constants';
+import { errorMessage } from '../helpers/errors';
+import { splitwiseFetch } from '../services/splitwiseClient';
 
 const router = Router();
 
-const SPLITWISE_API = 'https://secure.splitwise.com/api/v3.0';
-
-function getApiKey(): string | null {
-  const row = getDb().prepare("SELECT value FROM settings WHERE key = 'splitwise_api_key'").get() as { value: string } | undefined;
-  return row?.value ?? null;
-}
-
-function getCurrentUserId(): string | null {
-  const row = getDb().prepare("SELECT value FROM settings WHERE key = 'splitwise_user_id'").get() as { value: string } | undefined;
-  return row?.value ?? null;
-}
-
-async function splitwiseFetch(path: string, apiKey: string) {
-  const res = await fetch(`${SPLITWISE_API}${path}`, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  if (!res.ok) throw new Error(`Splitwise API error: ${res.status}`);
-  return res.json();
-}
-
 // GET /api/splitwise/connect - test de API key en sla user ID op
 router.get('/connect', async (_req: Request, res: Response) => {
-  const apiKey = getApiKey();
+  const apiKey = getSetting(SETTING_KEYS.SPLITWISE_API_KEY);
   if (!apiKey) return res.status(400).json({ error: 'Splitwise API key not configured' });
 
   try {
     const data = await splitwiseFetch('/get_current_user', apiKey) as { user: { id: number; first_name: string; last_name: string } };
     const user = data.user;
-    getDb().prepare("INSERT INTO settings (key, value) VALUES ('splitwise_user_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(user.id));
+    upsertSetting(SETTING_KEYS.SPLITWISE_USER_ID, String(user.id));
     res.json({ id: user.id, name: [user.first_name, user.last_name].filter(Boolean).join(' ') });
   } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Unknown error' });
+    res.status(500).json({ error: errorMessage(e) });
   }
 });
 
 // GET /api/splitwise/expenses?limit=100&offset=0&dated_after=YYYY-MM-DD
 router.get('/expenses', async (req: Request, res: Response) => {
-  const apiKey = getApiKey();
+  const apiKey = getSetting(SETTING_KEYS.SPLITWISE_API_KEY);
   if (!apiKey) return res.status(400).json({ error: 'Splitwise API key not configured' });
 
-  const userId = getCurrentUserId();
+  const userId = getSetting(SETTING_KEYS.SPLITWISE_USER_ID);
   if (!userId) return res.status(400).json({ error: 'Splitwise user not connected. Call /connect first.' });
 
   const limit = req.query['limit'] ?? 200;
@@ -100,13 +83,13 @@ router.get('/expenses', async (req: Request, res: Response) => {
 
     res.json(processed);
   } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Unknown error' });
+    res.status(500).json({ error: errorMessage(e) });
   }
 });
 
 // GET /api/splitwise/balances - saldo per persoon (wat anderen mij verschuldigd zijn)
 router.get('/balances', async (_req: Request, res: Response) => {
-  const apiKey = getApiKey();
+  const apiKey = getSetting(SETTING_KEYS.SPLITWISE_API_KEY);
   if (!apiKey) return res.status(400).json({ error: 'Splitwise API key not configured' });
 
   try {
@@ -129,7 +112,7 @@ router.get('/balances', async (_req: Request, res: Response) => {
 
     res.json(balances);
   } catch (e: unknown) {
-    res.status(500).json({ error: e instanceof Error ? e.message : 'Unknown error' });
+    res.status(500).json({ error: errorMessage(e) });
   }
 });
 

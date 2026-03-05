@@ -39,7 +39,6 @@ export interface Transaction {
   ing_transaction_id: string | null;
   splitwise_expense_id: string | null;
   splitwise_owed_share: number | null;
-  payment_method: string | null;
   notes: string | null;
   counterparty_account: string | null;
   counterparty_name: string | null;

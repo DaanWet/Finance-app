@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
 import { WorkExpense, ExpenseReceipt } from '../../models';
+import { formatEur as _formatEur, formatDate as _formatDate } from '../../utils/format';
 
 @Component({
   selector: 'app-expenses',
@@ -147,13 +148,8 @@ export class Expenses implements OnInit {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
 
-  formatEur(amount: number): string {
-    return new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(Math.abs(amount));
-  }
-
-  formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
+  formatEur(amount: number): string { return _formatEur(Math.abs(amount)); }
+  formatDate = _formatDate;
 
   formatMonthLabel(ym: string): string {
     const [y, m] = ym.split('-');

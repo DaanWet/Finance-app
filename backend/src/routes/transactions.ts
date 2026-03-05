@@ -5,9 +5,11 @@ import {
   createTransaction, updateTransaction, deleteTransaction,
   confirmAllTransactions, confirmTransactions, deleteTransactions
 } from '../queries/transactions';
-import { analyzeTransactions, TransactionAnalysisInput } from '../services/aiAnalysis';
-import { fetchSplitwiseExpenses, initStreamResponse, sendProgress, sendResult, sendStreamError } from './import';
+import { initStreamResponse, sendProgress, sendResult, sendStreamError } from './import';
 import { cleanupLinksForDeletedTransaction } from '../queries/reimbursementLinks';
+import { TRANSACTION_TYPES } from '../helpers/constants';
+import { reanalyzeBulk, reanalyzeSingle } from '../services/reanalyzeService';
+import { errorMessage } from '../helpers/errors';
 
 const router = Router();
 
@@ -27,21 +29,19 @@ router.get('/', (req: Request, res: Response) => {
 router.post('/', (req: Request, res: Response) => {
   const db = getDb();
   const { description, amount, date, type, category_id, organization_id,
-          payment_method, notes, splitwise_expense_id } = req.body;
+          notes, splitwise_expense_id } = req.body;
 
   if (!description || amount === undefined || !date || !type) {
     return res.status(400).json({ error: 'description, amount, date, type are required' });
   }
-  const validTypes = ['personal', 'reimbursable', 'income', 'savings'];
-  if (!validTypes.includes(type)) {
-    return res.status(400).json({ error: `type must be one of: ${validTypes.join(', ')}` });
+  if (!TRANSACTION_TYPES.includes(type)) {
+    return res.status(400).json({ error: `type must be one of: ${TRANSACTION_TYPES.join(', ')}` });
   }
 
   const tx = createTransaction(db, {
     description, amount: Number(amount), date, type,
     category_id: category_id ?? null,
     organization_id: organization_id ?? null,
-    payment_method: payment_method ?? null,
     notes: notes ?? null,
     splitwise_expense_id: splitwise_expense_id ?? null,
   });
@@ -90,118 +90,17 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
   initStreamResponse(res);
 
   try {
-  sendProgress(res, 'Data laden...', 5);
-
-  const categories = db.prepare('SELECT id, name FROM categories ORDER BY id').all() as { id: number; name: string }[];
-  const organizations = db.prepare('SELECT id, name FROM organizations ORDER BY id').all() as { id: number; name: string }[];
-
-  sendProgress(res, 'Splitwise data ophalen...', 10);
-  const earliestDate = txs.reduce((min, tx) => tx.date < min ? tx.date : min, txs[0].date);
-  const splitwiseExpenses = await fetchSplitwiseExpenses(earliestDate);
-
-  sendProgress(res, 'AI-analyse uitvoeren...', 15);
-  const inputs: TransactionAnalysisInput[] = txs.map((tx, idx) => ({
-    index: idx,
-    date: tx.date,
-    amount: tx.amount,
-    counterparty_iban: tx.counterparty_account ?? '',
-    counterparty_name: '',
-    omschrijving: tx.description,
-    detail: '',
-    bericht: '',
-  }));
-
-  const aiResults = await analyzeTransactions(inputs, { categories, organizations, splitwiseExpenses });
-  if (!aiResults || aiResults.length === 0) {
-    return sendStreamError(res, 'AI analyse mislukt');
-  }
-
-  sendProgress(res, 'Transacties bijwerken...', 82);
-
-  for (const ai of aiResults) {
-    const tx = txs[ai.index];
-    if (!tx) continue;
-
-    const swId = ai.splitwise_expense_id != null ? String(parseInt(String(ai.splitwise_expense_id), 10)) : null;
-    let splitwise_owed_share: number | null = null;
-    if (swId) {
-      const swExpense = splitwiseExpenses.find(e => String(e.id) === swId);
-      if (swExpense) splitwise_owed_share = swExpense.my_owed_share;
-    }
-
-    updateTransaction(db, tx.id, {
-      description: ai.readable_name || tx.description,
-      type: ai.type,
-      category_id: ai.category_id,
-      organization_id: ai.organization_id,
-      splitwise_expense_id: swId,
-      splitwise_owed_share,
-      notes: ai.notes,
-      category_confirmed: 0,
+    const result = await reanalyzeBulk(db, txs, (msg, progress) => {
+      sendProgress(res, msg, progress);
     });
 
-    if (tx.amount > 0 && tx.counterparty_account) {
-      const match = db.prepare(`
-        SELECT id, amount FROM transactions
-        WHERE type = 'reimbursable'
-          AND reimbursed_at IS NULL
-          AND counterparty_account = ?
-          AND ABS(amount + ?) < ABS(?) * 0.1
-          AND id != ?
-        ORDER BY date DESC LIMIT 1
-      `).get(tx.counterparty_account, tx.amount, tx.amount, tx.id) as { id: number; amount: number } | undefined;
-
-      if (match) {
-        db.prepare(`
-          UPDATE transactions SET reimbursed_at = ?, reimbursed_note = 'Automatisch gedetecteerd bij heranalyse'
-          WHERE id = ?
-        `).run(tx.date, match.id);
-
-        db.prepare(`
-          UPDATE transactions SET reimbursed_note = 'Terugbetaling'
-          WHERE id = ? AND reimbursed_note IS NULL
-        `).run(tx.id);
-
-        db.prepare(`
-          INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
-          VALUES (?, ?, ?)
-        `).run(tx.id, match.id, Math.abs(match.amount));
-      }
+    if (!result) {
+      return sendStreamError(res, 'AI analyse mislukt');
     }
-  }
 
-  sendProgress(res, 'Voorschotten koppelen...', 92);
-
-  // Within-batch advance linking (via AI advance_repaid_by_index)
-  for (const ai of aiResults) {
-    if (ai.advance_repaid_by_index === null) continue;
-    const advanceTx = txs[ai.index];
-    const repaymentTx = txs[ai.advance_repaid_by_index];
-    if (!advanceTx || !repaymentTx) continue;
-
-    db.prepare(`
-      UPDATE transactions SET
-        reimbursed_at = ?,
-        reimbursed_note = 'Automatisch gedetecteerd bij heranalyse (zelfde batch)'
-      WHERE id = ? AND reimbursed_at IS NULL
-    `).run(repaymentTx.date, advanceTx.id);
-
-    db.prepare(`
-      UPDATE transactions SET reimbursed_note = 'Terugbetaling'
-      WHERE id = ? AND reimbursed_note IS NULL
-    `).run(repaymentTx.id);
-
-    db.prepare(`
-      INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
-      VALUES (?, ?, ?)
-    `).run(repaymentTx.id, advanceTx.id, Math.abs(advanceTx.amount));
-  }
-
-  const updated = getTransactionsByIds(db, txs.map(t => t.id));
-  sendResult(res, { reanalyzed: updated.length, transactions: updated });
-
+    sendResult(res, result);
   } catch (err) {
-    sendStreamError(res, 'Heranalyse mislukt: ' + (err instanceof Error ? err.message : 'Onbekende fout'));
+    sendStreamError(res, 'Heranalyse mislukt: ' + errorMessage(err));
   }
 });
 
@@ -218,107 +117,9 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
   const tx = getTransactionById(db, id);
   if (!tx) return res.status(404).json({ error: 'Not found' });
 
-  const categories = db.prepare('SELECT id, name FROM categories ORDER BY id').all() as { id: number; name: string }[];
-  const organizations = db.prepare('SELECT id, name FROM organizations ORDER BY id').all() as { id: number; name: string }[];
-  const splitwiseExpenses = await fetchSplitwiseExpenses(tx.date);
-
-  const input: TransactionAnalysisInput = {
-    index: 0,
-    date: tx.date,
-    amount: tx.amount,
-    counterparty_iban: tx.counterparty_account ?? '',
-    counterparty_name: '',
-    omschrijving: tx.description,
-    detail: '',
-    bericht: '',
-  };
-
-  const aiResults = await analyzeTransactions([input], { categories, organizations, splitwiseExpenses });
-  if (!aiResults || aiResults.length === 0) {
+  const result = await reanalyzeSingle(db, tx);
+  if (!result) {
     return res.status(500).json({ error: 'AI analyse mislukt' });
-  }
-
-  const ai = aiResults[0];
-  const swId = ai.splitwise_expense_id != null ? String(parseInt(String(ai.splitwise_expense_id), 10)) : null;
-  let splitwise_owed_share: number | null = null;
-  if (swId) {
-    const swExpense = splitwiseExpenses.find(e => String(e.id) === swId);
-    if (swExpense) splitwise_owed_share = swExpense.my_owed_share;
-  }
-  updateTransaction(db, id, {
-    description: ai.readable_name || tx.description,
-    type: ai.type,
-    category_id: ai.category_id,
-    organization_id: ai.organization_id,
-    splitwise_expense_id: swId,
-    splitwise_owed_share,
-    notes: ai.notes,
-    category_confirmed: 0,
-  });
-
-  // Pass 3: DB-niveau voorschot-matching als positief bedrag
-  if (tx.amount > 0 && tx.counterparty_account) {
-    const match = db.prepare(`
-      SELECT id, amount FROM transactions
-      WHERE type = 'reimbursable'
-        AND reimbursed_at IS NULL
-        AND counterparty_account = ?
-        AND ABS(amount + ?) < ABS(?) * 0.1
-        AND id != ?
-      ORDER BY date DESC
-      LIMIT 1
-    `).get(tx.counterparty_account, tx.amount, tx.amount, id) as { id: number; amount: number } | undefined;
-
-    if (match) {
-      db.prepare(`
-        UPDATE transactions SET
-          reimbursed_at = ?,
-          reimbursed_note = 'Automatisch gedetecteerd bij heranalyse'
-        WHERE id = ?
-      `).run(tx.date, match.id);
-
-      db.prepare(`
-        UPDATE transactions SET reimbursed_note = 'Terugbetaling'
-        WHERE id = ? AND reimbursed_note IS NULL
-      `).run(id);
-
-      db.prepare(`
-        INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
-        VALUES (?, ?, ?)
-      `).run(id, match.id, Math.abs(match.amount));
-    }
-  }
-
-  // Omgekeerde matching: negatieve transactie zoekt positieve terugbetaling in DB
-  if (tx.amount < 0 && tx.counterparty_account) {
-    const match = db.prepare(`
-      SELECT id, date FROM transactions
-      WHERE amount > 0
-        AND counterparty_account = ?
-        AND ABS(amount + ?) < ABS(?) * 0.1
-        AND id != ?
-      ORDER BY date DESC
-      LIMIT 1
-    `).get(tx.counterparty_account, tx.amount, tx.amount, id) as { id: number; date: string } | undefined;
-
-    if (match) {
-      db.prepare(`
-        UPDATE transactions SET
-          reimbursed_at = ?,
-          reimbursed_note = 'Automatisch gedetecteerd bij heranalyse'
-        WHERE id = ? AND reimbursed_at IS NULL
-      `).run(match.date, id);
-
-      db.prepare(`
-        UPDATE transactions SET reimbursed_note = 'Terugbetaling'
-        WHERE id = ? AND reimbursed_note IS NULL
-      `).run(match.id);
-
-      db.prepare(`
-        INSERT OR IGNORE INTO reimbursement_links (income_transaction_id, expense_transaction_id, amount)
-        VALUES (?, ?, ?)
-      `).run(match.id, id, Math.abs(tx.amount));
-    }
   }
 
   res.json(getTransactionById(db, id));

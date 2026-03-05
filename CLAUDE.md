@@ -18,14 +18,26 @@ backend/src/
                       classificationRules, expenses
   queries/          — transactions.ts, reimbursements.ts, reimbursementLinks.ts, dashboard.ts
   services/
-    aiAnalysis.ts   — Claude API integratie
-    gmailService.ts — Google OAuth + NMBS ticket parsing
-    excelExport.ts  — Excel onkostennota generatie
-    pdfExport.ts    — PDF bonnen-bundel generatie
+    aiAnalysis.ts       — Claude API integratie
+    gmailService.ts     — Google OAuth + NMBS ticket parsing
+    excelExport.ts      — Excel onkostennota generatie
+    pdfExport.ts        — PDF bonnen-bundel generatie
+    csvParser.ts        — ING CSV parsing (oud + nieuw formaat)
+    importService.ts    — 4-pass import orchestratie
+    reanalyzeService.ts — AI heranalyse (single + bulk)
+    advanceMatching.ts  — Voorschot-detectie en linking
+    importHelpers.ts    — NMBS ticket matching + Splitwise expenses fetch + Gmail ticket matching
+    analysisHelpers.ts  — Gedeelde AI-analyse helpers (loadAnalysisContext, resolveSplitwise, applyAiResult, TransactionClassification)
+  helpers/
+    settings.ts     — getSetting(), upsertSetting() voor settings tabel
+    constants.ts    — SETTING_KEYS, TRANSACTION_TYPES, note-constanten
+    errors.ts       — errorMessage() helper
+    expenses.ts     — parseMonth(), getMonthDateRange(), getWorkOrgId() gedeelde expense helpers
 frontend/src/app/
   app.ts / app.routes.ts — root + lazy routes
   models/index.ts   — TypeScript interfaces (Transaction, etc.)
   services/api.service.ts — alle HTTP-methoden
+  utils/format.ts   — formatEur(), formatDate(), typeBadge() gedeelde helpers
   pages/            — dashboard, transactions, reimbursements, settings,
                       splitwise, expenses
 ```
@@ -45,7 +57,7 @@ frontend/src/app/
 - Oud: `Datum;Naam;Rekening;Tegenrekening;Code;Afschrijving;Bijschrijving;Mededeling`
 - Preview-endpoint: `POST /api/import/ing-csv/preview`
 - Import-endpoint: `POST /api/import/ing-csv` met `{ selectedIndices: number[] | null }`
-- 3-pass algoritme: (1) opslaan + AI, (2) within-batch voorschot-linking, (3) DB-niveau voorschot-matching
+- 4-pass algoritme: (1) opslaan + AI, (2) within-batch voorschot-linking, (3) DB-niveau voorschot-matching, (4) NMBS ticket matching
 
 ## AI analyse
 - Model: claude-opus-4-6, env var `ANTHROPIC_API_KEY`
@@ -55,6 +67,14 @@ frontend/src/app/
 - category_confirmed = 0 bij AI-classificatie, 1 bij handmatig/rules
 - Fallback: classification rules (patroonmatch op description)
 - Splitwise matching: bedrag binnen 5%, datum binnen 7 dagen
+
+## NMBS ticket auto-matching
+- Draait bij import (pass 4), bulk-reanalyze en single reanalyze
+- Vereist: Gmail connected + work_organization_id geconfigureerd (skipt silently anders)
+- Haalt NMBS tickets op via `fetchNmbsTickets()` voor de datumrange van de transacties
+- Match criteria: exact bedrag (`abs(tx.amount) === ticket.amount`) en exact datum (`tx.date === ticket.date`)
+- Bij match: zet `type='reimbursable'`, `organization_id=workOrgId`, slaat receipt PDF op, voegt trajectory toe aan notes
+- Gedeelde helper: `matchNmbsTickets(db, transactionIds)` in `routes/import.ts`
 
 ## Voorschot-detectie
 - Within-batch: AI geeft `advance_repaid_by_index` → reimbursed_at = terugbetalingsdatum + reimbursement_link

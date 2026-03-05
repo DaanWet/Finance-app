@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { ReimbursementGroup, Transaction, IncomeCandidateTransaction, ReimbursementLink } from '../../models';
+import { formatEur, formatDate } from '../../utils/format';
 
 @Component({
   selector: 'app-reimbursements',
@@ -146,11 +147,6 @@ export class Reimbursements implements OnInit {
     this.api.getReceivedReimbursements(months ?? undefined).subscribe(data => this.received.set(data));
   }
 
-  formatEur(amount: number): string {
-    return new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(amount);
-  }
-
-  formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
+  formatEur = formatEur;
+  formatDate = formatDate;
 }

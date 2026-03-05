@@ -6,7 +6,10 @@
       "Skill(claude-developer-platform)",
       "Skill(claude-developer-platform:*)",
       "Bash(npx ng build)",
-      "Bash(git diff --cached --no-stat)"
+      "Bash(git diff --cached --no-stat)",
+      "Bash(wc -l /home/daan/Finance-app/backend/src/routes/*.ts)",
+      "Bash(wc -l /home/daan/Finance-app/backend/src/services/*.ts /home/daan/Finance-app/backend/src/helpers/*.ts /home/daan/Finance-app/backend/src/db.ts /home/daan/Finance-app/backend/src/schema.ts /home/daan/Finance-app/backend/src/index.ts)",
+      "Bash(wc -l /home/daan/Finance-app/backend/src/services/*.ts /home/daan/Finance-app/backend/src/queries/*.ts)"
     ]
   }
 }

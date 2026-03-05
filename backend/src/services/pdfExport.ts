@@ -1,4 +1,4 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFFont, PDFImage, rgb, StandardFonts } from 'pdf-lib';
 
 export interface ReceiptData {
   data: Buffer;
@@ -7,6 +7,17 @@ export interface ReceiptData {
   transaction_date?: string;
   transaction_description?: string;
 }
+
+function addErrorPage(doc: PDFDocument, font: PDFFont, message: string): void {
+  const errPage = doc.addPage([595, 842]);
+  errPage.drawText(message, { x: 50, y: 400, size: 12, font, color: rgb(0.8, 0.2, 0.2) });
+}
+
+const imageEmbedders: Record<string, (doc: PDFDocument, data: Buffer) => Promise<PDFImage>> = {
+  'image/jpeg': (doc, data) => doc.embedJpg(data),
+  'image/jpg': (doc, data) => doc.embedJpg(data),
+  'image/png': (doc, data) => doc.embedPng(data),
+};
 
 /**
  * Combines multiple receipts (PDF, JPEG, PNG) into a single PDF.
@@ -83,33 +94,18 @@ export async function combineReceiptsPdf(
         const pages = await merged.copyPages(srcDoc, indices);
         for (const page of pages) merged.addPage(page);
       } catch {
-        // Corrupt/encrypted PDF: add an error page
-        const errPage = merged.addPage([595, 842]);
-        errPage.drawText(`Kon PDF niet laden: ${receipt.filename}`, {
-          x: 50, y: 400, size: 12, font: helvetica, color: rgb(0.8, 0.2, 0.2),
-        });
+        addErrorPage(merged, helvetica, `Kon PDF niet laden: ${receipt.filename}`);
       }
-    } else if (ct === 'image/jpeg' || ct === 'image/jpg') {
-      try {
-        const img = await merged.embedJpg(receipt.data);
-        const page = merged.addPage([img.width, img.height]);
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-      } catch {
-        const errPage = merged.addPage([595, 842]);
-        errPage.drawText(`Kon afbeelding niet laden: ${receipt.filename}`, {
-          x: 50, y: 400, size: 12, font: helvetica, color: rgb(0.8, 0.2, 0.2),
-        });
-      }
-    } else if (ct === 'image/png') {
-      try {
-        const img = await merged.embedPng(receipt.data);
-        const page = merged.addPage([img.width, img.height]);
-        page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-      } catch {
-        const errPage = merged.addPage([595, 842]);
-        errPage.drawText(`Kon afbeelding niet laden: ${receipt.filename}`, {
-          x: 50, y: 400, size: 12, font: helvetica, color: rgb(0.8, 0.2, 0.2),
-        });
+    } else {
+      const embedder = imageEmbedders[ct];
+      if (embedder) {
+        try {
+          const img = await embedder(merged, receipt.data);
+          const page = merged.addPage([img.width, img.height]);
+          page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+        } catch {
+          addErrorPage(merged, helvetica, `Kon afbeelding niet laden: ${receipt.filename}`);
+        }
       }
     }
   }

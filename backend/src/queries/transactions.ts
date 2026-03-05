@@ -13,7 +13,6 @@ export interface Transaction {
   ing_transaction_id: string | null;
   splitwise_expense_id: string | null;
   splitwise_owed_share: number | null;
-  payment_method: string | null;
   notes: string | null;
   counterparty_account: string | null;
   counterparty_name: string | null;
@@ -107,7 +106,6 @@ export interface CreateTransactionInput {
   ing_transaction_id?: string | null;
   splitwise_expense_id?: string | null;
   splitwise_owed_share?: number | null;
-  payment_method?: string | null;
   notes?: string | null;
   counterparty_account?: string | null;
   counterparty_name?: string | null;
@@ -118,15 +116,15 @@ export interface CreateTransactionInput {
 export function createTransaction(db: Database.Database, input: CreateTransactionInput): Transaction {
   const result = db.prepare(`
     INSERT INTO transactions (description, amount, date, type, category_id, organization_id,
-      ing_transaction_id, splitwise_expense_id, splitwise_owed_share, payment_method, notes,
+      ing_transaction_id, splitwise_expense_id, splitwise_owed_share, notes,
       counterparty_account, counterparty_name, original_description, category_confirmed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.description, input.amount, input.date, input.type,
     input.category_id ?? null, input.organization_id ?? null,
     input.ing_transaction_id ?? null, input.splitwise_expense_id ?? null,
     input.splitwise_owed_share ?? null,
-    input.payment_method ?? null, input.notes ?? null,
+    input.notes ?? null,
     input.counterparty_account ?? null,
     input.counterparty_name ?? null,
     input.original_description ?? null,
@@ -145,7 +143,7 @@ export function updateTransaction(db: Database.Database, id: number, input: Upda
     UPDATE transactions SET
       description = ?, amount = ?, date = ?, type = ?,
       category_id = ?, organization_id = ?,
-      splitwise_expense_id = ?, splitwise_owed_share = ?, payment_method = ?, notes = ?,
+      splitwise_expense_id = ?, splitwise_owed_share = ?, notes = ?,
       category_confirmed = ?,
       updated_at = datetime('now')
     WHERE id = ?
@@ -158,7 +156,6 @@ export function updateTransaction(db: Database.Database, id: number, input: Upda
     input.organization_id !== undefined ? input.organization_id : existing.organization_id,
     input.splitwise_expense_id !== undefined ? input.splitwise_expense_id : existing.splitwise_expense_id,
     input.splitwise_owed_share !== undefined ? input.splitwise_owed_share : existing.splitwise_owed_share,
-    input.payment_method !== undefined ? input.payment_method : existing.payment_method,
     input.notes !== undefined ? input.notes : existing.notes,
     input.category_confirmed !== undefined ? input.category_confirmed : existing.category_confirmed,
     id

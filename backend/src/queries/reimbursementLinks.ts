@@ -132,26 +132,16 @@ export interface IncomeCandidateRow {
 
 export function getIncomeCandidates(
   db: Database.Database,
-  organizationId?: number
+  _organizationId?: number
 ): IncomeCandidateRow[] {
-  // Income transactions, with how much is already linked
-  let query = `
+  return db.prepare(`
     SELECT t.id, t.description, t.amount, t.date, t.counterparty_name,
            COALESCE(SUM(rl.amount), 0) AS linked_total
     FROM transactions t
     LEFT JOIN reimbursement_links rl ON rl.income_transaction_id = t.id
     WHERE t.type = 'income' AND t.amount > 0
-  `;
-  const params: unknown[] = [];
-
-  if (organizationId) {
-    // Filter to income from the same counterparty as expenses from this org
-    // Not feasible directly — just return all income transactions
-  }
-
-  query += ` GROUP BY t.id ORDER BY t.date DESC LIMIT 100`;
-
-  return db.prepare(query).all(...params) as IncomeCandidateRow[];
+    GROUP BY t.id ORDER BY t.date DESC LIMIT 100
+  `).all() as IncomeCandidateRow[];
 }
 
 export function getExpenseCandidates(

@@ -1,9 +1,14 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { getDb } from '../db';
-import { getAuthUrl, exchangeCode, isGmailConnected, fetchNmbsTickets } from '../services/gmailService';
+import { getAuthUrl, exchangeCode, isGmailConnected } from '../services/gmailService';
+import { matchGmailTicketsToExpenses } from '../services/importHelpers';
 import { generateExpenseExcel, classifyExpense, TransportExpense, OtherExpense } from '../services/excelExport';
 import { combineReceiptsPdf, ReceiptData } from '../services/pdfExport';
+import { getSetting } from '../helpers/settings';
+import { SETTING_KEYS } from '../helpers/constants';
+import { errorMessage } from '../helpers/errors';
+import { getMonthDateRange, getWorkOrgId, requireWorkOrg } from '../helpers/expenses';
 
 const router = Router();
 const upload = multer({
@@ -15,32 +20,12 @@ const upload = multer({
   },
 });
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
-
-function upsertSetting(key: string, value: string): void {
-  getDb()
-    .prepare('INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-    .run(key, value);
-}
-
-function getSetting(key: string): string | undefined {
-  return (getDb().prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string } | undefined)?.value;
-}
-
-/** Parse YYYY-MM from query param, default to current month */
-function parseMonth(raw: string | undefined): string {
-  if (raw && /^\d{4}-\d{2}$/.test(raw)) return raw;
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-}
-
 // ─── GET /api/expenses ────────────────────────────────────────────────────────
 // Returns all work-expense transactions: open (unreimbursed) + reimbursed.
 
 router.get('/', (req: Request, res: Response) => {
   const db = getDb();
-  const workOrgId = getSetting('work_organization_id');
-
+  const workOrgId = getSetting(SETTING_KEYS.WORK_ORG_ID);
   if (!workOrgId) {
     return res.json({ transactions: [], reimbursed: [], gmail_connected: isGmailConnected(), work_org_configured: false });
   }
@@ -186,108 +171,43 @@ router.get('/gmail/status', (_req: Request, res: Response) => {
 // ─── POST /api/expenses/gmail/fetch ───────────────────────────────────────────
 // Fetch NMBS tickets from Gmail for a given month and auto-match to transactions.
 
-router.post('/gmail/fetch', async (req: Request, res: Response) => {
+router.post('/gmail/fetch', requireWorkOrg, async (req: Request, res: Response) => {
   if (!isGmailConnected()) {
     return res.status(401).json({ error: 'Gmail niet verbonden. Koppel eerst uw Google-account.' });
   }
 
-  const workOrgId = getSetting('work_organization_id');
-  if (!workOrgId) {
-    return res.status(400).json({ error: 'Werkorganisatie niet geconfigureerd. Ga naar Instellingen.' });
-  }
-
-  const month = parseMonth(req.body?.month as string | undefined);
-  const [year, mon] = month.split('-');
-  const dateFrom = `${year}-${mon}-01`;
-  // Last day of month
-  const lastDay = new Date(Number(year), Number(mon), 0).getDate();
-  const dateTo = `${year}-${mon}-${String(lastDay).padStart(2, '0')}`;
+  const workOrgId = String(res.locals['workOrgId']);
+  const { dateFrom, dateTo } = getMonthDateRange(req.body?.month as string | undefined);
 
   try {
-    const tickets = await fetchNmbsTickets(dateFrom, dateTo);
     const db = getDb();
-    const linked: number[] = [];
-    const unmatched: string[] = [];
-
-    for (const { ticket, pdfBuffer, messageId } of tickets) {
-      // Find a matching transaction: exact date and amount within 5%
-      const candidates = db.prepare(`
-        SELECT id, amount, date FROM transactions
-        WHERE date = ?
-          AND amount < 0
-          AND type = 'reimbursable'
-          AND organization_id = ?
-        ORDER BY ABS(amount - ?) ASC
-        LIMIT 5
-      `).all(ticket.date, Number(workOrgId), -ticket.amount) as { id: number; amount: number; date: string }[];
-
-      let matchedId: number | null = null;
-      for (const cand of candidates) {
-        const diff = Math.abs(Math.abs(cand.amount) - ticket.amount) / ticket.amount;
-        if (diff <= 0.05) { matchedId = cand.id; break; }
-      }
-
-      if (matchedId) {
-        // Save receipt linked to transaction
-        db.prepare(`
-          INSERT INTO expense_receipts (transaction_id, filename, content_type, data, gmail_message_id)
-          VALUES (?, ?, 'application/pdf', ?, ?)
-        `).run(matchedId, `ticket_${ticket.date}_${ticket.from}-${ticket.to}.pdf`, pdfBuffer, messageId);
-
-        // Store traject in transaction notes so Excel export can use it
-        if (ticket.from && ticket.to) {
-          const existing = db.prepare('SELECT notes FROM transactions WHERE id=?').get(matchedId) as { notes: string | null };
-          const tripType = ticket.roundTrip ? 'heen en terug' : 'enkel';
-          const trajNote = `Van: ${ticket.from} → Naar: ${ticket.to} (${tripType})`;
-          if (!existing.notes?.includes('Van:')) {
-            const newNotes = existing.notes ? `${existing.notes}\n${trajNote}` : trajNote;
-            db.prepare("UPDATE transactions SET notes=?, updated_at=datetime('now') WHERE id=?").run(newNotes, matchedId);
-          }
-        }
-
-        linked.push(matchedId);
-      } else {
-        // Save unmatched receipt linked to a placeholder: store with transaction_id=-1 is not possible
-        // Instead: just return info so user can manually assign
-        unmatched.push(`${ticket.date} ${ticket.from}→${ticket.to} €${ticket.amount.toFixed(2)}`);
-      }
-    }
-
-    res.json({
-      fetched: tickets.length,
-      linked: linked.length,
-      unmatched,
-    });
-  } catch (err: any) {
+    const result = await matchGmailTicketsToExpenses(db, workOrgId, dateFrom, dateTo);
+    res.json(result);
+  } catch (err: unknown) {
     console.error('Gmail fetch error:', err);
-    const is403 = err?.status === 403 || err?.code === 403;
+    const errObj = err as Record<string, unknown>;
+    const is403 = errObj?.status === 403 || errObj?.code === 403;
     const detail = is403
       ? 'Gmail API is niet ingeschakeld in uw Google Cloud project. Ga naar Google Cloud Console en schakel de Gmail API in.'
-      : String(err);
+      : errorMessage(err);
     res.status(500).json({ error: 'Fout bij ophalen Gmail-tickets', detail });
   }
 });
 
 // ─── GET /api/expenses/export/excel ───────────────────────────────────────────
 
-router.get('/export/excel', async (req: Request, res: Response) => {
+router.get('/export/excel', requireWorkOrg, async (req: Request, res: Response) => {
   const db = getDb();
-  const workOrgId = getSetting('work_organization_id');
-  if (!workOrgId) {
-    return res.status(400).json({ error: 'Werkorganisatie niet geconfigureerd. Ga naar Instellingen.' });
-  }
+  const workOrgId = res.locals['workOrgId'] as number;
 
-  const month = parseMonth(req.query['month'] as string | undefined);
-  const [year, mon] = month.split('-');
-  const dateFrom = `${year}-${mon}-01`;
-  const dateTo   = `${year}-${mon}-31`;
+  const { month, dateFrom, dateTo, year, mon } = getMonthDateRange(req.query['month'] as string | undefined);
 
   const transactions = db.prepare(`
     SELECT t.id, t.description, t.amount, t.date, t.notes
     FROM transactions t
     WHERE t.type = 'reimbursable' AND t.organization_id = ? AND t.date BETWEEN ? AND ?
     ORDER BY t.date ASC
-  `).all(Number(workOrgId), dateFrom, dateTo) as { id: number; description: string; amount: number; date: string; notes: string | null }[];
+  `).all(workOrgId, dateFrom, dateTo) as { id: number; description: string; amount: number; date: string; notes: string | null }[];
 
   if (transactions.length === 0) {
     return res.status(404).json({ error: 'Geen werkuitgaven gevonden voor deze maand.' });
@@ -322,24 +242,17 @@ router.get('/export/excel', async (req: Request, res: Response) => {
     res.send(buffer);
   } catch (err) {
     console.error('Excel export error:', err);
-    const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: msg });
+    res.status(500).json({ error: errorMessage(err) });
   }
 });
 
 // ─── GET /api/expenses/export/pdf ─────────────────────────────────────────────
 
-router.get('/export/pdf', async (req: Request, res: Response) => {
+router.get('/export/pdf', requireWorkOrg, async (req: Request, res: Response) => {
   const db = getDb();
-  const workOrgId = getSetting('work_organization_id');
-  if (!workOrgId) {
-    return res.status(400).json({ error: 'Werkorganisatie niet geconfigureerd. Ga naar Instellingen.' });
-  }
+  const workOrgId = res.locals['workOrgId'] as number;
 
-  const month = parseMonth(req.query['month'] as string | undefined);
-  const [year, mon] = month.split('-');
-  const dateFrom = `${year}-${mon}-01`;
-  const dateTo   = `${year}-${mon}-31`;
+  const { month, dateFrom, dateTo } = getMonthDateRange(req.query['month'] as string | undefined);
 
   const receipts = db.prepare(`
     SELECT r.id, r.filename, r.content_type, r.data, t.date AS transaction_date, t.description AS transaction_description
@@ -347,7 +260,7 @@ router.get('/export/pdf', async (req: Request, res: Response) => {
     JOIN transactions t ON t.id = r.transaction_id
     WHERE t.type = 'reimbursable' AND t.organization_id = ? AND t.date BETWEEN ? AND ?
     ORDER BY t.date ASC, r.created_at ASC
-  `).all(Number(workOrgId), dateFrom, dateTo) as { id: number; filename: string; content_type: string; data: Buffer; transaction_date: string; transaction_description: string }[];
+  `).all(workOrgId, dateFrom, dateTo) as { id: number; filename: string; content_type: string; data: Buffer; transaction_date: string; transaction_description: string }[];
 
   if (receipts.length === 0) {
     return res.status(404).json({ error: 'Geen bewijsstukken gevonden voor deze maand.' });

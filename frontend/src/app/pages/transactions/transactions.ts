@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { Transaction, Organization, Category, TransactionType, ImportResult, CsvPreviewRow, SplitwiseExpense, ReimbursementLink, ExpenseCandidateTransaction, IncomeCandidateTransaction } from '../../models';
+import { formatEur as _formatEur, formatDate as _formatDate, typeBadge as _typeBadge } from '../../utils/format';
 
 @Component({
   selector: 'app-transactions',
@@ -574,21 +575,7 @@ export class Transactions implements OnInit {
     });
   }
 
-  formatEur(amount: number): string {
-    return new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' }).format(Math.abs(amount));
-  }
-
-  formatDate(dateStr: string): string {
-    return new Date(dateStr).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
-  }
-
-  typeBadge(type: string): string {
-    const map: Record<string, string> = {
-      personal: 'Persoonlijk',
-      reimbursable: 'Terugbetaalbaar',
-      income: 'Inkomst',
-      savings: 'Sparen',
-    };
-    return map[type] ?? type;
-  }
+  formatEur(amount: number): string { return _formatEur(Math.abs(amount)); }
+  formatDate = _formatDate;
+  typeBadge = _typeBadge;
 }

@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { Organization, Category, ClassificationRule } from '../../models';
+import { typeBadge } from '../../utils/format';
 
 @Component({
   selector: 'app-settings',
@@ -110,8 +111,5 @@ export class Settings implements OnInit {
     this.api.setSetting('work_organization_id', id !== null ? String(id) : '').subscribe();
   }
 
-  typeLabel(type: string): string {
-    const map: Record<string, string> = { personal: 'Persoonlijk', reimbursable: 'Terugbetaalbaar', income: 'Inkomst' };
-    return map[type] ?? type;
-  }
+  typeLabel = typeBadge;
 }
