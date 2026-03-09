@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { getTransactionsByIds } from '../queries/transactions';
-import { analyzeTransactions, TransactionAnalysisInput } from './aiAnalysis';
+import { analyzeTransactions, TransactionAnalysisInput, type TokenUsage } from './aiAnalysis';
 import { fetchSplitwiseExpenses } from './splitwiseClient';
 import { loadAnalysisContext, applyAiResult, linkAndMatchTransactions } from './analysisHelpers';
 
@@ -20,7 +20,7 @@ function buildReanalyzeInput(tx: { date: string; amount: number; description: st
 export async function reanalyzeBulk(
   db: Database.Database,
   txs: ReturnType<typeof getTransactionsByIds>,
-  onProgress: (msg: string, progress: number) => void
+  onProgress: (msg: string, progress: number, tokens?: TokenUsage) => void
 ) {
   onProgress('Data laden...', 5);
   const txIds = txs.map(t => t.id);
@@ -33,12 +33,16 @@ export async function reanalyzeBulk(
   onProgress('AI-analyse uitvoeren...', 15);
   const inputs = txs.map((tx, idx) => buildReanalyzeInput(tx, idx));
 
-  const aiResults = await analyzeTransactions(inputs, { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
+  const { results: aiResults, usage: tokenUsage } = await analyzeTransactions(
+    inputs,
+    { categories, organizations, splitwiseExpenses, unreimbursedExpenses },
+    (tokens) => onProgress('AI-analyse uitvoeren...', 15, tokens),
+  );
   if (!aiResults || aiResults.length === 0) {
     return null;
   }
 
-  onProgress('Transacties bijwerken...', 82);
+  onProgress('Transacties bijwerken...', 82, tokenUsage ?? undefined);
 
   for (const ai of aiResults) {
     const tx = txs[ai.index];
@@ -64,7 +68,7 @@ export async function reanalyzeSingle(
   const splitwiseExpenses = await fetchSplitwiseExpenses(tx.date);
 
   const input = buildReanalyzeInput(tx, 0);
-  const aiResults = await analyzeTransactions([input], { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
+  const { results: aiResults } = await analyzeTransactions([input], { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
   if (!aiResults || aiResults.length === 0) {
     return null;
   }

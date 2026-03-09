@@ -163,9 +163,18 @@ export interface ExpenseCandidateTransaction {
   organization_name: string | null;
 }
 
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  total_cost_usd: number;
+}
+
 export interface StreamProgress<T = unknown> {
   message: string;
   progress: number;
   result?: T;
   error?: boolean;
+  tokens?: TokenUsage;
 }

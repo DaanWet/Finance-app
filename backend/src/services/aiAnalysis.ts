@@ -51,11 +51,25 @@ export interface AnalysisContext {
   }[];
 }
 
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  total_cost_usd: number;
+}
+
+export interface AnalysisResult {
+  results: TransactionAnalysisResult[] | null;
+  usage: TokenUsage | null;
+}
+
 export async function analyzeTransactions(
   inputs: TransactionAnalysisInput[],
   context: AnalysisContext,
-): Promise<TransactionAnalysisResult[] | null> {
-  if (inputs.length === 0) return null;
+  onUsage?: (usage: TokenUsage) => void,
+): Promise<AnalysisResult> {
+  if (inputs.length === 0) return { results: null, usage: null };
   await toonReady;
 
   const prompt = `Je bent een financieel analysator voor Belgische banktransacties (ING Bank).
@@ -128,19 +142,77 @@ ${toonEncode(inputs)}`;
     const { query } = await import("@anthropic-ai/claude-agent-sdk");
 
     let resultText = "";
+    let streamedChars = 0;
+    let lastUsageUpdate = 0;
+    const USAGE_THROTTLE_MS = 500;
+    // Estimate input tokens upfront (~4 chars per token)
+    const estimatedInputTokens = Math.round(prompt.length / 4);
+    const liveUsage: TokenUsage = { input_tokens: estimatedInputTokens, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, total_cost_usd: 0 };
+    onUsage?.({ ...liveUsage });
+    const emitUsage = (force = false) => {
+      const now = Date.now();
+      if (force || now - lastUsageUpdate >= USAGE_THROTTLE_MS) {
+        lastUsageUpdate = now;
+        onUsage?.({ ...liveUsage });
+      }
+    };
 
     for await (const message of query({
       prompt,
       options: {
         allowedTools: [],
+        includePartialMessages: true,
       },
     })) {
-      if ("result" in message) {
-        resultText = (message as { result?: string }).result ?? "";
+      if ("type" in message && (message as Record<string, unknown>).type === "stream_event") {
+        const event = (message as unknown as { event: Record<string, unknown> }).event;
+        if (event.type === "message_start") {
+          const msgObj = event.message as Record<string, unknown> | undefined;
+          const u = msgObj?.usage as { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined;
+          if (u) {
+            liveUsage.input_tokens = u.input_tokens ?? liveUsage.input_tokens;
+            liveUsage.cache_read_input_tokens = u.cache_read_input_tokens ?? 0;
+            liveUsage.cache_creation_input_tokens = u.cache_creation_input_tokens ?? 0;
+            emitUsage(true);
+          }
+        } else if (event.type === "content_block_delta") {
+          // Estimate output tokens from streamed text (~4 chars per token)
+          // delta can be { type: "text_delta", text: "..." } or { type: "thinking_delta", thinking: "..." }
+          const delta = event.delta as Record<string, unknown> | undefined;
+          const text = (delta?.text as string) ?? (delta?.thinking as string);
+          if (text) {
+            streamedChars += text.length;
+            liveUsage.output_tokens = Math.round(streamedChars / 4);
+            emitUsage();
+          }
+        } else if (event.type === "message_delta") {
+          // Final usage arrives here — replace estimates with actuals
+          const u = event.usage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } | undefined;
+          if (u) {
+            if (u.output_tokens) liveUsage.output_tokens = u.output_tokens;
+            if (u.input_tokens) liveUsage.input_tokens = u.input_tokens;
+            if (u.cache_read_input_tokens) liveUsage.cache_read_input_tokens = u.cache_read_input_tokens;
+            if (u.cache_creation_input_tokens) liveUsage.cache_creation_input_tokens = u.cache_creation_input_tokens;
+            emitUsage(true);
+          }
+        }
+      } else if ("result" in message) {
+        const msg = message as unknown as { result?: string; usage?: Record<string, number>; total_cost_usd?: number };
+        resultText = msg.result ?? "";
+        if (msg.usage) {
+          liveUsage.input_tokens = msg.usage.input_tokens ?? liveUsage.input_tokens;
+          liveUsage.output_tokens = msg.usage.output_tokens ?? liveUsage.output_tokens;
+          liveUsage.cache_read_input_tokens = msg.usage.cache_read_input_tokens ?? liveUsage.cache_read_input_tokens;
+          liveUsage.cache_creation_input_tokens = msg.usage.cache_creation_input_tokens ?? liveUsage.cache_creation_input_tokens;
+        }
+        liveUsage.total_cost_usd = msg.total_cost_usd ?? 0;
+        emitUsage(true);
       }
     }
 
-    if (!resultText) return null;
+    const usage: TokenUsage = { ...liveUsage };
+
+    if (!resultText) return { results: null, usage };
 
     // Try TOON decode first, fall back to JSON
     let parsed: { results: TransactionAnalysisResult[] };
@@ -148,17 +220,17 @@ ${toonEncode(inputs)}`;
       parsed = toonDecode(resultText.trim()) as { results: TransactionAnalysisResult[] };
     } catch {
       const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
+      if (!jsonMatch) return { results: null, usage };
       parsed = JSON.parse(jsonMatch[0]) as { results: TransactionAnalysisResult[] };
     }
-    if (!Array.isArray(parsed.results)) return null;
+    if (!Array.isArray(parsed.results)) return { results: null, usage };
 
-    return parsed.results;
+    return { results: parsed.results, usage };
   } catch (err) {
     console.error(
       "[AI Analysis] Fout bij analyseren:",
       err instanceof Error ? err.message : err,
     );
-    return null;
+    return { results: null, usage: null };
   }
 }

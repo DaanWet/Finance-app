@@ -91,8 +91,8 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
   initStreamResponse(res);
 
   try {
-    const result = await reanalyzeBulk(db, txs, (msg, progress) => {
-      sendProgress(res, msg, progress);
+    const result = await reanalyzeBulk(db, txs, (msg, progress, tokens) => {
+      sendProgress(res, msg, progress, tokens);
     });
 
     if (!result) {

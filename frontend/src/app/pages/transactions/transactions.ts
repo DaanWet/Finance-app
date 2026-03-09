@@ -37,6 +37,8 @@ export class Transactions implements OnInit {
   importLoading = signal(false);
   importProgress = signal<{ message: string; progress: number } | null>(null);
   bulkProgress = signal<{ message: string; progress: number } | null>(null);
+  importTokens = signal<{ input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number; total_cost_usd: number } | null>(null);
+  bulkTokens = signal<{ input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number; total_cost_usd: number } | null>(null);
   unconfirmedCount = computed(
     () => this.transactions().filter((tx) => tx.category_confirmed === 0).length,
   );
@@ -384,6 +386,7 @@ export class Transactions implements OnInit {
     if (ids.length === 0) return;
     this.bulkLoading.set(true);
     this.bulkProgress.set({ message: 'Starten...', progress: 0 });
+    this.bulkTokens.set(null);
     this.api.bulkReanalyze(ids).subscribe({
       next: (event) => {
         if (event.result) {
@@ -395,6 +398,7 @@ export class Transactions implements OnInit {
           this.bulkProgress.set(null);
         } else {
           this.bulkProgress.set({ message: event.message, progress: event.progress });
+          if (event.tokens) this.bulkTokens.set(event.tokens);
           if (event.message.includes('AI-analyse')) {
             this.startProgressTick(this.bulkProgress, 80);
           } else {
@@ -596,6 +600,7 @@ export class Transactions implements OnInit {
     const indices = Array.from(this.selectedIndices());
     this.importLoading.set(true);
     this.importProgress.set({ message: 'Starten...', progress: 0 });
+    this.importTokens.set(null);
     this.showImportPreview.set(false);
     const import$ =
       this.importType === 'pluxee'
@@ -612,6 +617,7 @@ export class Transactions implements OnInit {
           this.loadTransactions();
         } else {
           this.importProgress.set({ message: event.message, progress: event.progress });
+          if (event.tokens) this.importTokens.set(event.tokens);
           if (event.message.includes('AI-analyse')) {
             this.startProgressTick(this.importProgress, 78);
           } else {
@@ -627,6 +633,14 @@ export class Transactions implements OnInit {
         alert('Import mislukt. Controleer het CSV-formaat.');
       },
     });
+  }
+
+  formatTokens(t: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; total_cost_usd: number }): string {
+    const fmt = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+    const parts = [fmt(t.input_tokens) + ' in', fmt(t.output_tokens) + ' out'];
+    if (t.cache_read_input_tokens > 0) parts.push(fmt(t.cache_read_input_tokens) + ' cache');
+    parts.push('$' + t.total_cost_usd.toFixed(3));
+    return parts.join(' · ');
   }
 
   formatEur(amount: number): string {

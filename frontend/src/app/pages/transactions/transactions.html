@@ -24,7 +24,12 @@
       <div class="progress-bar-track">
         <div class="progress-bar-fill" [style.width.%]="progress.progress"></div>
       </div>
-      <span class="progress-bar-label">{{ progress.message }}</span>
+      <div class="progress-bar-labels">
+        <span class="progress-bar-label">{{ progress.message }}</span>
+        @if (importTokens(); as tokens) {
+          <span class="progress-bar-tokens">{{ formatTokens(tokens) }}</span>
+        }
+      </div>
     </div>
   }
 
@@ -32,7 +37,8 @@
     <div class="import-result">
       ✅ Import klaar: <strong>{{ result.imported }} nieuw</strong>, {{ result.skipped }} overgeslagen (duplicaat)
       @if (result.ai_analyzed) { <span class="badge-ai">🤖 AI geanalyseerd</span> }
-      <button class="btn-icon" (click)="importResult.set(null)">✕</button>
+      @if (importTokens(); as tokens) { <span class="badge-tokens">{{ formatTokens(tokens) }}</span> }
+      <button class="btn-icon" (click)="importResult.set(null); importTokens.set(null)">✕</button>
     </div>
   }
 
@@ -101,7 +107,12 @@
           <div class="progress-bar-track">
             <div class="progress-bar-fill" [style.width.%]="progress.progress"></div>
           </div>
-          <span class="progress-bar-label">{{ progress.message }}</span>
+          <div class="progress-bar-labels">
+            <span class="progress-bar-label">{{ progress.message }}</span>
+            @if (bulkTokens(); as tokens) {
+              <span class="progress-bar-tokens">{{ formatTokens(tokens) }}</span>
+            }
+          </div>
         </div>
       }
     }

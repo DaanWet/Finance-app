@@ -17,8 +17,10 @@ export function initStreamResponse(res: Response): void {
   res.flushHeaders();
 }
 
-export function sendProgress(res: Response, message: string, progress: number): void {
-  res.write(JSON.stringify({ message, progress }) + '\n');
+export function sendProgress(res: Response, message: string, progress: number, tokens?: { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number; total_cost_usd: number }): void {
+  const data: Record<string, unknown> = { message, progress };
+  if (tokens) data.tokens = tokens;
+  res.write(JSON.stringify(data) + '\n');
 }
 
 export function sendResult<T>(res: Response, result: T): void {
@@ -79,8 +81,8 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
 
   try {
     const db = getDb();
-    const result = await executeImport(db, rows, selectedSet, (msg, progress) => {
-      sendProgress(res, msg, progress);
+    const result = await executeImport(db, rows, selectedSet, (msg, progress, tokens) => {
+      sendProgress(res, msg, progress, tokens);
     });
     sendResult(res, result);
   } catch (err) {
@@ -136,8 +138,8 @@ router.post('/pluxee-csv', upload.single('file'), async (req: Request, res: Resp
 
   try {
     const db = getDb();
-    const result = await executeImport(db, rows, selectedSet, (msg, progress) => {
-      sendProgress(res, msg, progress);
+    const result = await executeImport(db, rows, selectedSet, (msg, progress, tokens) => {
+      sendProgress(res, msg, progress, tokens);
     });
     sendResult(res, result);
   } catch (err) {

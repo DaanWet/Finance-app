@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { createTransaction, type CreateTransactionInput } from '../queries/transactions';
-import { analyzeTransactions, TransactionAnalysisInput, TransactionAnalysisResult } from './aiAnalysis';
+import { analyzeTransactions, TransactionAnalysisInput, TransactionAnalysisResult, type TokenUsage } from './aiAnalysis';
 import { fetchSplitwiseExpenses } from './splitwiseClient';
 import { loadAnalysisContext, resolveSplitwise, linkAndMatchTransactions } from './analysisHelpers';
 import type { AnalysisContext } from './aiAnalysis';
@@ -89,7 +89,7 @@ export async function executeImport(
   db: Database.Database,
   rows: ParsedIngRow[],
   selectedSet: Set<number> | null,
-  onProgress: (msg: string, progress: number) => void
+  onProgress: (msg: string, progress: number, tokens?: TokenUsage) => void
 ) {
   onProgress('CSV verwerken...', 5);
   const { categories, organizations, unreimbursedExpenses } = loadAnalysisContext(db);
@@ -118,10 +118,14 @@ export async function executeImport(
     bericht: row.raw['Bericht'] ?? row.raw['Mededeling'] ?? row.description ?? '',
   }));
 
-  const aiResults = await analyzeTransactions(analysisInputs, { categories, organizations, splitwiseExpenses, unreimbursedExpenses });
+  const { results: aiResults, usage: tokenUsage } = await analyzeTransactions(
+    analysisInputs,
+    { categories, organizations, splitwiseExpenses, unreimbursedExpenses },
+    (tokens) => onProgress('AI-analyse uitvoeren...', 15, tokens),
+  );
   const aiAnalyzed = aiResults !== null;
 
-  onProgress('Transacties opslaan...', 80);
+  onProgress('Transacties opslaan...', 80, tokenUsage ?? undefined);
 
   let imported = 0;
   let skipped = 0;
