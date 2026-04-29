@@ -237,7 +237,7 @@ export function getUnreimbursedExpensesForContext(
     SELECT t.id, t.date, t.amount, t.description, t.counterparty_name, o.name AS organization_name
     FROM transactions t
     LEFT JOIN organizations o ON t.organization_id = o.id
-    WHERE t.type = 'reimbursable' AND t.reimbursed_at IS NULL
+    WHERE t.type = 'reimbursable' AND t.reimbursed_at IS NULL AND t.written_off_at IS NULL
   `;
   const params: (string | number)[] = [];
 

@@ -112,6 +112,19 @@ export class ApiService {
     return this.http.post<{ success: boolean }>(`${BASE}/reimbursements/${id}/mark-received`, { note });
   }
 
+  getWrittenOffReimbursements(months?: number): Observable<ReimbursementGroup[]> {
+    const params = months ? `?months=${months}` : '';
+    return this.http.get<ReimbursementGroup[]>(`${BASE}/reimbursements/written-off${params}`);
+  }
+
+  markWrittenOff(id: number, note?: string, personalShare?: number): Observable<{ success: boolean }> {
+    return this.http.post<{ success: boolean }>(`${BASE}/reimbursements/${id}/mark-written-off`, { note, personalShare });
+  }
+
+  bulkMarkWrittenOff(ids: number[], note?: string, personalShareMode: 'none' | 'full' = 'none'): Observable<{ changed: number }> {
+    return this.http.post<{ changed: number }>(`${BASE}/reimbursements/bulk-write-off`, { ids, note, personalShareMode });
+  }
+
   linkIncomeToExpenses(data: { income_transaction_id: number; expenses: { expense_transaction_id: number; amount: number }[] }): Observable<{ links: ReimbursementLink[] }> {
     return this.http.post<{ links: ReimbursementLink[] }>(`${BASE}/reimbursements/link`, data);
   }

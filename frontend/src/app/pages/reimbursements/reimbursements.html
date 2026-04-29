@@ -9,6 +9,17 @@
   @if (loading()) {
     <div class="loading">Laden...</div>
   } @else {
+    <!-- Bulk action bar -->
+    @if (bulkSelectedCount() > 0) {
+      <div class="bulk-action-bar">
+        <span class="bulk-count">{{ bulkSelectedCount() }} geselecteerd</span>
+        <div class="bulk-actions">
+          <button class="btn-sm btn-write-off-bulk" (click)="openBulkWriteOff()">Markeer als niet meer inbaar</button>
+          <button class="btn-secondary btn-sm" (click)="clearSelection()">Wis selectie</button>
+        </div>
+      </div>
+    }
+
     <!-- Outstanding -->
     <h2 class="section-title">Openstaand</h2>
     @if (outstanding().length === 0) {
@@ -21,6 +32,7 @@
         <div class="org-group card">
           <div class="org-header">
             <div class="org-info">
+              <input type="checkbox" class="group-checkbox" [checked]="isGroupAllSelected(group)" (change)="toggleSelectAllInGroup(group)" title="Selecteer alle in deze groep">
               <span class="org-dot" [style.background]="group.organization_color"></span>
               <span class="org-name">{{ group.organization_name }}</span>
               <span class="org-count text-muted">{{ group.count }} uitgave(n)</span>
@@ -30,7 +42,8 @@
 
           <div class="tx-list">
             @for (tx of group.transactions; track tx.id) {
-              <div class="tx-row" [class.confirming]="confirmId() === tx.id || linkingExpenseId() === tx.id">
+              <div class="tx-row" [class.confirming]="confirmId() === tx.id || linkingExpenseId() === tx.id" [class.row-selected]="isSelected(tx.id)">
+                <input type="checkbox" class="row-checkbox" [checked]="isSelected(tx.id)" (change)="toggleSelection(tx.id)">
                 <div class="tx-info">
                   <span class="tx-date text-muted">{{ formatDate(tx.date) }}</span>
                   <span class="tx-desc">{{ tx.description }}</span>
@@ -43,6 +56,9 @@
                   @if (confirmId() !== tx.id && linkingExpenseId() !== tx.id) {
                     <button class="btn-link btn-sm" (click)="openLinkToIncome(tx)" title="Koppel aan inkomst">&#x21A9;</button>
                     <button class="btn-success btn-sm" (click)="openConfirm(tx)">&#x2713; Ontvangen</button>
+                    <button class="btn-write-off-sm" (click)="openSingleWriteOff(tx)" [disabled]="writingOffId() === tx.id" title="Markeer als niet meer inbaar (verloren geld)">
+                      @if (writingOffId() === tx.id) { ... } @else { &#x2716; Niet inbaar }
+                    </button>
                   }
                 </div>
               </div>
@@ -164,6 +180,120 @@
           </div>
         }
       }
+    }
+
+    <!-- Niet meer inbaar -->
+    <div class="section-header">
+      <h2 class="section-title">Niet meer inbaar</h2>
+      <div class="section-controls">
+        @if (writtenOff().length > 0) {
+          <span class="text-muted written-off-total">{{ formatEur(totalWrittenOff()) }}</span>
+        }
+        <button class="btn-secondary btn-sm" (click)="showWrittenOffExpanded.set(!showWrittenOffExpanded())">
+          {{ showWrittenOffExpanded() ? 'Verbergen' : 'Tonen' }}
+        </button>
+      </div>
+    </div>
+
+    @if (showWrittenOffExpanded()) {
+      @if (writtenOff().length === 0) {
+        <p class="text-muted" style="padding: 1rem 0">Geen verloren terugbetalingen.</p>
+      } @else {
+        @for (group of writtenOff(); track group.organization_id) {
+          <div class="org-group card written-off-group">
+            <div class="org-header">
+              <div class="org-info">
+                <span class="org-dot" [style.background]="group.organization_color"></span>
+                <span class="org-name">{{ group.organization_name }}</span>
+                <span class="org-count text-muted">{{ group.count }} uitgave(n)</span>
+              </div>
+              <span class="org-total text-muted">{{ formatEur(group.total) }}</span>
+            </div>
+            <div class="tx-list">
+              @for (tx of group.transactions; track tx.id) {
+                <div class="tx-row">
+                  <div class="tx-info">
+                    <span class="tx-date text-muted">{{ formatDate(tx.date) }}</span>
+                    <span class="tx-desc">{{ tx.description }}</span>
+                    @if (tx.written_off_at) {
+                      <span class="tx-note text-muted">
+                        &#x2716; Verloren — gemarkeerd op {{ formatDate(tx.written_off_at) }}
+                        @if (tx.written_off_note) {
+                          ({{ tx.written_off_note }})
+                        }
+                        @if (tx.written_off_personal_share && tx.written_off_personal_share > 0) {
+                          — persoonlijk deel: {{ formatEur(tx.written_off_personal_share) }}
+                        }
+                      </span>
+                    }
+                  </div>
+                  <span class="tx-amount text-muted">{{ formatEur(tx.amount) }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+      }
+    }
+
+    <!-- Bulk niet-meer-inbaar modal -->
+    @if (showBulkWriteOffModal()) {
+      <div class="modal-overlay" (click)="cancelBulkWriteOff()">
+        <div class="modal" (click)="$event.stopPropagation()">
+          <div class="modal-header">
+            <h3>Markeer {{ bulkSelectedCount() }} transactie(s) als niet meer inbaar</h3>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted"><strong>Verloren geld.</strong> Deze transacties worden definitief gemarkeerd als niet langer terug te vragen — bv. te oud, vergeten te claimen, of niet in Splitwise gezet. Ze verdwijnen uit de openstaande lijst maar blijven traceerbaar onder "Niet meer inbaar".</p>
+            <label class="form-label">Notitie (optioneel)</label>
+            <input [(ngModel)]="bulkWriteOffNote" placeholder="bv. 'Te oud bij bulk-import historiek'" class="modal-input">
+            <label class="checkbox-row">
+              <input type="checkbox" [checked]="bulkPersonalShareFull()" (change)="bulkPersonalShareFull.set(!bulkPersonalShareFull())">
+              <span>Tel volledig bedrag mee als persoonlijke uitgave (in dashboard)</span>
+            </label>
+            <p class="text-muted modal-hint">Aanvinken als je de verloren bedragen alsnog als zelf-betaalde uitgaven wil zien in je personal totaal. Voor partiële persoonlijke aandelen: markeer de transactie individueel.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" (click)="cancelBulkWriteOff()" [disabled]="bulkSaving()">Annuleren</button>
+            <button class="btn-write-off-bulk" (click)="confirmBulkWriteOff()" [disabled]="bulkSaving()">
+              @if (bulkSaving()) { Bezig... } @else { &#x2716; Markeer als niet meer inbaar }
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Single niet-meer-inbaar modal -->
+    @if (showSingleWriteOffModal() && singleWriteOffTx() !== null) {
+      <div class="modal-overlay" (click)="cancelSingleWriteOff()">
+        <div class="modal" (click)="$event.stopPropagation()">
+          <div class="modal-header">
+            <h3>Markeer als niet meer inbaar: {{ singleWriteOffTx()!.description }}</h3>
+          </div>
+          <div class="modal-body">
+            <p class="text-muted"><strong>Verloren geld.</strong> Bedrag <strong>{{ formatEur(singleWriteOffTx()!.amount) }}</strong> wordt definitief gemarkeerd als niet langer terug te vragen.</p>
+            <label class="form-label">Notitie (optioneel)</label>
+            <input [(ngModel)]="singleWriteOffNote" placeholder="bv. 'Te oud, niet meer claimbaar'" class="modal-input">
+
+            <label class="form-label">Persoonlijk deel (telt mee in dashboard)</label>
+            <div class="personal-share-row">
+              <input type="number" step="0.01" min="0" [max]="absSingleAmount()"
+                     [ngModel]="singleWriteOffPersonalShare()"
+                     (ngModelChange)="singleWriteOffPersonalShare.set($event)"
+                     class="modal-input personal-share-input">
+              <button class="btn-secondary btn-sm" (click)="singleWriteOffPersonalShare.set(0)">€0</button>
+              <button class="btn-secondary btn-sm" (click)="setSingleWriteOffFullPersonal()">Volledig</button>
+            </div>
+            <p class="text-muted modal-hint">Bedrag dat je effectief zelf droeg als persoonlijke uitgave (bv. omdat het in Splitwise had moeten staan). Laat op 0 als het puur verloren werkkost is.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" (click)="cancelSingleWriteOff()" [disabled]="writingOffId() !== null">Annuleren</button>
+            <button class="btn-write-off-bulk" (click)="confirmSingleWriteOff()" [disabled]="writingOffId() !== null">
+              @if (writingOffId() !== null) { Bezig... } @else { &#x2716; Markeer als niet meer inbaar }
+            </button>
+          </div>
+        </div>
+      </div>
     }
   }
 </div>

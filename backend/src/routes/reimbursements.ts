@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../db';
 import { errorMessage } from '../helpers/errors';
-import { getOutstandingReimbursements, getReceivedReimbursements, markReimbursed } from '../queries/reimbursements';
+import {
+  getOutstandingReimbursements,
+  getReceivedReimbursements,
+  getWrittenOffReimbursements,
+  markReimbursed,
+  markWrittenOff,
+  bulkMarkWrittenOff,
+} from '../queries/reimbursements';
 import {
   linkIncomeToExpenses,
   unlinkExpense,
@@ -26,6 +33,30 @@ router.post('/:id/mark-received', (req: Request, res: Response) => {
   const { note } = req.body;
   const ok = markReimbursed(getDb(), id, note);
   if (!ok) return res.status(404).json({ error: 'Transaction not found or already reimbursed' });
+  res.json({ success: true });
+});
+
+router.get('/written-off', (req: Request, res: Response) => {
+  const months = req.query['months'] ? Number(req.query['months']) : undefined;
+  res.json(getWrittenOffReimbursements(getDb(), months));
+});
+
+router.post('/bulk-write-off', (req: Request, res: Response) => {
+  const { ids, note, personalShareMode } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids[] required' });
+  }
+  const mode = personalShareMode === 'full' ? 'full' : 'none';
+  const changed = bulkMarkWrittenOff(getDb(), ids.map(Number), note, mode);
+  res.json({ changed });
+});
+
+router.post('/:id/mark-written-off', (req: Request, res: Response) => {
+  const id = Number(req.params['id']);
+  const { note, personalShare } = req.body;
+  const share = personalShare !== undefined && personalShare !== null ? Number(personalShare) : undefined;
+  const ok = markWrittenOff(getDb(), id, note, share);
+  if (!ok) return res.status(404).json({ error: 'Transaction not found, already reimbursed, or already written off' });
   res.json({ success: true });
 });
 

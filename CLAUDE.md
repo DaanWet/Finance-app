@@ -46,7 +46,7 @@ frontend/src/app/
 ```
 
 ## DB schema (kern)
-- **transactions**: id, description, amount (neg=uitgave, pos=inkomst), date, type (personal/reimbursable/income/savings), category_id, organization_id, reimbursed_at, reimbursed_note, ing_transaction_id (UNIQUE), splitwise_expense_id, splitwise_owed_share, counterparty_account, counterparty_name, original_description, category_confirmed (0=AI/onbevestigd, 1=bevestigd), notes
+- **transactions**: id, description, amount (neg=uitgave, pos=inkomst), date, type (personal/reimbursable/income/savings), category_id, organization_id, reimbursed_at, reimbursed_note, written_off_at, written_off_note, written_off_personal_share, ing_transaction_id (UNIQUE), splitwise_expense_id, splitwise_owed_share, counterparty_account, counterparty_name, original_description, category_confirmed (0=AI/onbevestigd, 1=bevestigd), notes
 - **expense_receipts**: id, transaction_id (FK → transactions), filename, content_type, data (BLOB), gmail_message_id, created_at
 - **categories**: id, name, color, icon (emoji)
 - **organizations**: id, name, color
@@ -114,6 +114,17 @@ frontend/src/app/
 - Bij verwijderen van transactie: cleanup via `cleanupLinksForDeletedTransaction()` in applicatiecode
 - Bidirectioneel: vanuit inkomst → expenses selecteren (transactions page), vanuit expense → inkomst selecteren (reimbursements page)
 
+## Afgeschreven (write-off)
+- Reimbursable transacties die te oud zijn om nog terug te vragen krijgen `written_off_at` (timestamp) + optionele `written_off_note`
+- Type blijft `reimbursable` → merchant profiles correct, `reimbursed_at` blijft NULL → analytics over "ontvangen" blijven correct
+- Outstanding-queries (`getReimbursementGroups`, `getExpenseCandidates`, `getUnreimbursedExpensesForContext`, dashboard) filteren op `reimbursed_at IS NULL AND written_off_at IS NULL`
+- **Persoonlijk aandeel** (`written_off_personal_share`, REAL nullable): bedrag in € dat de gebruiker effectief zelf droeg (bv. iets dat in Splitwise had moeten staan maar niet gebeurd is). Dit deel telt mee in dashboard `personalTotal` + `byCategory` + `monthlyTrend` (CASE WHEN type='reimbursable' AND written_off_at IS NOT NULL THEN COALESCE(written_off_personal_share, 0)). Default NULL = puur verloren werkkost, telt nergens mee.
+- Definitief: geen "unmark"-endpoint. Voor ongedaan maken: handmatig DB-update
+- UI:
+  - Bulk-selectie via checkboxen op outstanding sectie + "Markeer als afgeschreven" actie met note + checkbox "tel volledig bedrag mee als persoonlijke uitgave"
+  - Per-rij "Schrijf af" knop opent modal met note + persoonlijk-deel input (€0 / Volledig knoppen + custom waarde)
+  - Aparte (collapsed) "Afgeschreven" sectie onderaan reimbursements-pagina, toont notitie + persoonlijk deel per rij
+
 ## Splitwise
 - API key + user_id in settings tabel
 - Expenses opgehaald tijdens import voor AI-context
@@ -156,14 +167,17 @@ frontend/src/app/
 ### Reimbursements (`/api/reimbursements`)
 | Method | Endpoint | Functie |
 |--------|----------|---------|
-| GET | `/outstanding` | Onterugbetaald, gegroepeerd per org |
+| GET | `/outstanding` | Onterugbetaald (excl. afgeschreven), gegroepeerd per org |
 | GET | `/received` | Terugbetaald (`?months=N`, default 3) |
+| GET | `/written-off` | Afgeschreven (`?months=N` optioneel), gegroepeerd per org |
 | POST | `/:id/mark-received` | Body: `{ note?: string }` — handmatig markeren zonder link |
+| POST | `/:id/mark-written-off` | Body: `{ note?: string }` — markeer als afgeschreven (definitief) |
+| POST | `/bulk-write-off` | Bulk afschrijven. Body: `{ ids: number[], note?: string }` |
 | POST | `/link` | Koppel inkomst aan expenses. Body: `{ income_transaction_id, expenses: [{expense_transaction_id, amount}] }` |
 | DELETE | `/link/:incomeId/:expenseId` | Ontkoppel één expense van inkomst |
 | GET | `/links/:transactionId` | Links voor een transactie (retourneert `{ as_income, as_expense }`) |
 | GET | `/income-candidates` | Inkomsten beschikbaar voor koppeling `?organization_id=N` |
-| GET | `/expense-candidates` | Openstaande expenses beschikbaar voor koppeling `?organization_id=N` |
+| GET | `/expense-candidates` | Openstaande expenses (excl. afgeschreven) beschikbaar voor koppeling `?organization_id=N` |
 
 ### Dashboard (`/api/dashboard`)
 - `GET /?start=YYYY-MM-DD&end=YYYY-MM-DD`
@@ -190,7 +204,8 @@ frontend/src/app/
 ## TypeScript Interfaces (models/index.ts)
 ```typescript
 Transaction { id, description, amount, date, type, category_id, organization_id,
-  reimbursed_at, reimbursed_note, ing_transaction_id, splitwise_expense_id,
+  reimbursed_at, reimbursed_note, written_off_at, written_off_note,
+  ing_transaction_id, splitwise_expense_id,
   payment_method, notes, counterparty_account, counterparty_name,
   original_description, category_confirmed,
   created_at, updated_at,
@@ -232,8 +247,9 @@ ExpenseCandidateTransaction { id, description, amount, date, organization_name }
 - Signals: summary, balances, splitwiseTotal, loading, period ('month'|'last_month'|'year')
 
 ### reimbursements.ts
-- Signals: outstanding, received, loading, markingId, confirmId, confirmNote, linkingExpenseId, linkingAmount, incomeCandidates, selectedIncomeId, linkSaving, receivedLinks, expandedLinkId
+- Signals: outstanding, received, writtenOff, loading, markingId, writingOffId, confirmId, confirmNote, linkingExpenseId, linkingAmount, incomeCandidates, selectedIncomeId, linkSaving, receivedLinks, expandedLinkId, showReceivedExpanded, showWrittenOffExpanded, selectedIds (bulk), showBulkWriteOffModal, bulkWriteOffNote, bulkSaving
 - Linking flow: per expense een "Koppel aan inkomst" knop → selecteer inkomst + bedrag → bevestig
+- Write-off flow: bulk-checkboxen op outstanding rijen → "Markeer als afgeschreven" actiebalk → modal voor optionele note → bulk endpoint; ook per-rij "Schrijf af" knop voor enkel item; aparte "Afgeschreven" sectie (collapsed) onderaan
 
 ### expenses.ts
 - Signals: transactions, reimbursedTransactions, loading, gmailConnected, workOrgConfigured, fetchingGmail, fetchResult, uploadingFor, expandedRows, showReimbursed, selectedMonth

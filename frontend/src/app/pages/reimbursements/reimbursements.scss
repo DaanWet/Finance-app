@@ -53,6 +53,7 @@
   margin-bottom: 1rem;
 
   &.received-group { opacity: 0.75; }
+  &.written-off-group { opacity: 0.6; }
 }
 
 .org-header {
@@ -68,15 +69,18 @@
   display: flex;
   align-items: center;
   gap: 0.625rem;
+  flex-wrap: nowrap;
+  min-width: 0;
 
   .org-dot {
     width: 10px;
     height: 10px;
     border-radius: 50%;
+    flex-shrink: 0;
   }
 
-  .org-name { font-weight: 600; }
-  .org-count { font-size: 0.8rem; }
+  .org-name { font-weight: 600; white-space: nowrap; }
+  .org-count { font-size: 0.8rem; white-space: nowrap; }
 }
 
 .org-total {
@@ -107,6 +111,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
+  flex: 1;
+  min-width: 0;
 
   .tx-date { font-size: 0.75rem; }
   .tx-desc { font-size: 0.875rem; }
@@ -255,4 +261,172 @@
   transition: all 0.15s;
 
   &:hover { background: rgba(239,68,68,0.2); }
+}
+
+// Bulk selection + write-off
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 1rem;
+  margin-bottom: 0.75rem;
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: var(--radius);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.bulk-count {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6366f1;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.row-checkbox, .group-checkbox {
+  cursor: pointer;
+  accent-color: var(--primary);
+  flex-shrink: 0;
+}
+
+.row-selected {
+  background: rgba(99, 102, 241, 0.08);
+  border-radius: var(--radius);
+  padding-left: 0.5rem;
+}
+
+.btn-write-off-sm {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--text-muted, #94a3b8);
+  color: var(--text-muted, #94a3b8);
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover:not(:disabled) {
+    background: rgba(148, 163, 184, 0.2);
+    color: var(--text);
+  }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.btn-write-off-bulk {
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--text-muted, #94a3b8);
+  color: var(--text);
+  padding: 0.4rem 0.875rem;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+
+  &:hover:not(:disabled) { background: rgba(148, 163, 184, 0.25); }
+  &:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+.written-off-total {
+  font-size: 0.875rem;
+}
+
+// Modal
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: min(90vw, 480px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.modal-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+
+  h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+}
+
+.modal-body {
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  p { margin: 0; font-size: 0.85rem; }
+}
+
+.form-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.modal-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.modal-footer {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  margin-top: 0.25rem;
+
+  input[type="checkbox"] {
+    accent-color: var(--primary);
+    cursor: pointer;
+  }
+}
+
+.modal-hint {
+  font-size: 0.75rem;
+  margin-top: -0.25rem;
+}
+
+.personal-share-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  .personal-share-input {
+    flex: 1;
+  }
 }

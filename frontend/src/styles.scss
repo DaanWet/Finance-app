@@ -93,6 +93,14 @@ input, select, textarea {
   &::placeholder { color: var(--text-muted); }
 }
 
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border);

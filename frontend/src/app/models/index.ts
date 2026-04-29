@@ -36,6 +36,9 @@ export interface Transaction {
   organization_id: number | null;
   reimbursed_at: string | null;
   reimbursed_note: string | null;
+  written_off_at: string | null;
+  written_off_note: string | null;
+  written_off_personal_share: number | null;
   ing_transaction_id: string | null;
   splitwise_expense_id: string | null;
   splitwise_owed_share: number | null;

@@ -59,6 +59,9 @@ function addMissingColumns(db: Database.Database): void {
   try { db.exec(`ALTER TABLE transactions ADD COLUMN splitwise_owed_share REAL`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN counterparty_name TEXT`); } catch {}
   try { db.exec(`ALTER TABLE transactions ADD COLUMN original_description TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN written_off_at TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN written_off_note TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE transactions ADD COLUMN written_off_personal_share REAL`); } catch {}
 }
 
 function migrateSavingsType(db: Database.Database): void {
@@ -223,6 +226,7 @@ function createAnalysisIndexes(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tx_counterparty_account ON transactions(counterparty_account);
     CREATE INDEX IF NOT EXISTS idx_tx_counterparty_name ON transactions(counterparty_name);
     CREATE INDEX IF NOT EXISTS idx_tx_category_confirmed ON transactions(category_confirmed);
+    CREATE INDEX IF NOT EXISTS idx_tx_written_off_at ON transactions(written_off_at);
   `);
 }
 
