@@ -9,6 +9,8 @@ import {
   TransactionType,
   ImportResult,
   CsvPreviewRow,
+  ClassifiedPreviewRow,
+  ClassifyPreviewResult,
   SplitwiseExpense,
   ReimbursementLink,
   ExpenseCandidateTransaction,
@@ -119,6 +121,13 @@ export class Transactions implements OnInit {
   previewDateFrom = signal('');
   previewDateTo = signal('');
 
+  // Classified preview (after AI Call 1)
+  classifiedRows = signal<ClassifiedPreviewRow[]>([]);
+  classifyCategories = signal<Category[]>([]);
+  classifyOrganizations = signal<Organization[]>([]);
+  isClassified = signal(false);
+  classifyLoading = signal(false);
+
   filteredPreviewRows = computed(() => {
     const rows = this.previewRows();
     const from = this.previewDateFrom();
@@ -135,6 +144,25 @@ export class Transactions implements OnInit {
     const visible = this.filteredPreviewRows().filter((r) => !r.duplicate);
     return visible.length > 0 && visible.every((r) => this.selectedIndices().has(r.index));
   });
+
+  /** Get the classification for a preview row (by index). */
+  getClassification(index: number): ClassifiedPreviewRow | undefined {
+    return this.classifiedRows().find(c => c.index === index);
+  }
+
+  /** Update a single classification field. */
+  updateClassification(index: number, field: keyof ClassifiedPreviewRow, value: unknown) {
+    this.classifiedRows.update(rows =>
+      rows.map(r => r.index === index ? { ...r, [field]: value, user_modified: true } : r)
+    );
+  }
+
+  /** CSS class for confidence badge. */
+  confidenceClass(confidence: number): string {
+    if (confidence >= 85) return 'confidence-high';
+    if (confidence >= 50) return 'confidence-medium';
+    return 'confidence-low';
+  }
 
   // Reimbursement links (in edit modal)
   editLinks = signal<{ as_income: ReimbursementLink[]; as_expense: ReimbursementLink[] }>({
@@ -595,6 +623,43 @@ export class Transactions implements OnInit {
     this.selectedIndices.set(cur);
   }
 
+  classifyPreview() {
+    if (!this.previewFile) return;
+    const indices = Array.from(this.selectedIndices());
+    this.classifyLoading.set(true);
+    this.importProgress.set({ message: 'Starten...', progress: 0 });
+    this.importTokens.set(null);
+
+    this.api.classifyPreview(this.previewFile, indices, this.importType).subscribe({
+      next: (event) => {
+        if (event.result) {
+          this.stopProgressTick();
+          this.classifiedRows.set(event.result.classifications);
+          this.classifyCategories.set(event.result.categories);
+          this.classifyOrganizations.set(event.result.organizations);
+          if (event.result.tokens) this.importTokens.set(event.result.tokens);
+          this.isClassified.set(true);
+          this.classifyLoading.set(false);
+          this.importProgress.set(null);
+        } else {
+          this.importProgress.set({ message: event.message, progress: event.progress });
+          if (event.tokens) this.importTokens.set(event.tokens);
+          if (event.message.includes('AI-classificatie')) {
+            this.startProgressTick(this.importProgress, 78);
+          } else {
+            this.stopProgressTick();
+          }
+        }
+      },
+      error: () => {
+        this.stopProgressTick();
+        this.classifyLoading.set(false);
+        this.importProgress.set(null);
+        alert('Classificatie mislukt.');
+      },
+    });
+  }
+
   confirmImport() {
     if (!this.previewFile) return;
     const indices = Array.from(this.selectedIndices());
@@ -602,10 +667,15 @@ export class Transactions implements OnInit {
     this.importProgress.set({ message: 'Starten...', progress: 0 });
     this.importTokens.set(null);
     this.showImportPreview.set(false);
-    const import$ =
-      this.importType === 'pluxee'
+
+    // Use pre-classified path if available
+    const classified = this.classifiedRows();
+    const import$ = classified.length > 0
+      ? this.api.importWithClassifications(this.previewFile, indices, classified, this.importType)
+      : this.importType === 'pluxee'
         ? this.api.importPluxeeCsv(this.previewFile, indices)
         : this.api.importIngCsv(this.previewFile, indices);
+
     import$.subscribe({
       next: (event) => {
         if (event.result) {
@@ -614,11 +684,13 @@ export class Transactions implements OnInit {
           this.importLoading.set(false);
           this.importProgress.set(null);
           this.previewFile = null;
+          this.isClassified.set(false);
+          this.classifiedRows.set([]);
           this.loadTransactions();
         } else {
           this.importProgress.set({ message: event.message, progress: event.progress });
           if (event.tokens) this.importTokens.set(event.tokens);
-          if (event.message.includes('AI-analyse')) {
+          if (event.message.includes('AI')) {
             this.startProgressTick(this.importProgress, 78);
           } else {
             this.stopProgressTick();
@@ -630,6 +702,8 @@ export class Transactions implements OnInit {
         this.importLoading.set(false);
         this.importProgress.set(null);
         this.previewFile = null;
+        this.isClassified.set(false);
+        this.classifiedRows.set([]);
         alert('Import mislukt. Controleer het CSV-formaat.');
       },
     });

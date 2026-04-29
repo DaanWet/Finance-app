@@ -5,6 +5,106 @@ import { linkBatchAdvance, linkAdvanceToRepayment, findAndLinkAdvance, findAndLi
 import { matchNmbsTickets } from './importHelpers';
 import type { MatchableTx } from '../helpers/types';
 
+export interface FewShotExample {
+  counterparty_name: string | null;
+  amount: number;
+  description: string;
+  original_description: string | null;
+  category_id: number | null;
+  category_name: string | null;
+  organization_id: number | null;
+  organization_name: string | null;
+  type: string;
+}
+
+/**
+ * Select diverse few-shot examples from confirmed historical transactions.
+ * Picks 2 per category (diverse counterparties) + examples for special types.
+ */
+export function selectFewShotExamples(db: Database.Database): FewShotExample[] {
+  // Get 2 confirmed examples per category, preferring diverse counterparties
+  const examples = db.prepare(`
+    SELECT e.counterparty_name, e.amount, e.description, e.original_description,
+           e.category_id, c.name AS category_name,
+           e.organization_id, o.name AS organization_name, e.type
+    FROM (
+      SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY category_id
+        ORDER BY
+          category_confirmed DESC,
+          counterparty_name,
+          date DESC
+      ) AS rn
+      FROM transactions
+      WHERE category_id IS NOT NULL
+    ) e
+    LEFT JOIN categories c ON c.id = e.category_id
+    LEFT JOIN organizations o ON o.id = e.organization_id
+    WHERE e.rn <= 2
+    ORDER BY e.category_id, e.rn
+  `).all() as FewShotExample[];
+
+  // Add examples for special types if not well represented
+  const hasReimbursable = examples.some(e => e.type === 'reimbursable');
+  const hasSavings = examples.some(e => e.type === 'savings');
+
+  if (!hasReimbursable) {
+    const reimb = db.prepare(`
+      SELECT t.counterparty_name, t.amount, t.description, t.original_description,
+             t.category_id, c.name AS category_name,
+             t.organization_id, o.name AS organization_name, t.type
+      FROM transactions t
+      LEFT JOIN categories c ON c.id = t.category_id
+      LEFT JOIN organizations o ON o.id = t.organization_id
+      WHERE t.type = 'reimbursable' AND t.category_confirmed = 1
+      ORDER BY t.date DESC
+      LIMIT 2
+    `).all() as FewShotExample[];
+    examples.push(...reimb);
+  }
+
+  if (!hasSavings) {
+    const savings = db.prepare(`
+      SELECT t.counterparty_name, t.amount, t.description, t.original_description,
+             t.category_id, c.name AS category_name,
+             t.organization_id, o.name AS organization_name, t.type
+      FROM transactions t
+      LEFT JOIN categories c ON c.id = t.category_id
+      LEFT JOIN organizations o ON o.id = t.organization_id
+      WHERE t.type = 'savings' AND t.category_confirmed = 1
+      ORDER BY t.date DESC
+      LIMIT 2
+    `).all() as FewShotExample[];
+    examples.push(...savings);
+  }
+
+  return examples;
+}
+
+/**
+ * Format few-shot examples as context string for the AI prompt.
+ */
+export function formatFewShotForPrompt(examples: FewShotExample[]): string {
+  if (examples.length === 0) return '(geen voorbeelden beschikbaar)';
+
+  return examples.map(e => {
+    const parts = [
+      `counterparty="${e.counterparty_name ?? 'onbekend'}"`,
+      `bedrag=€${e.amount.toFixed(2)}`,
+      e.original_description ? `beschrijving="${e.original_description}"` : null,
+    ].filter(Boolean).join(', ');
+
+    const result: Record<string, unknown> = {
+      readable_name: e.description,
+      category_id: e.category_id,
+      type: e.type,
+    };
+    if (e.organization_id) result.organization_id = e.organization_id;
+
+    return `TX: ${parts}\n→ ${JSON.stringify(result)}`;
+  }).join('\n\n');
+}
+
 /** Shared type for the classification fields applied to a transaction by AI/rules. */
 export interface TransactionClassification {
   type: 'personal' | 'reimbursable' | 'income' | 'savings';

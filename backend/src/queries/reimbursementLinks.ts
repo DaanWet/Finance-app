@@ -189,3 +189,70 @@ export function cleanupLinksForDeletedTransaction(
     }
   }
 }
+
+export function cleanupLinksForTypeChange(
+  db: Database.Database,
+  transactionId: number,
+  oldType: string,
+  newType: string
+): void {
+  if (oldType === newType) return;
+
+  db.transaction(() => {
+    if (oldType === 'income' && newType !== 'income') {
+      // Income changed away: unlink all connected expenses
+      const linkedExpenses = db.prepare(`
+        SELECT expense_transaction_id FROM reimbursement_links WHERE income_transaction_id = ?
+      `).all(transactionId) as { expense_transaction_id: number }[];
+
+      db.prepare(`DELETE FROM reimbursement_links WHERE income_transaction_id = ?`).run(transactionId);
+
+      for (const { expense_transaction_id } of linkedExpenses) {
+        const remaining = db.prepare(`
+          SELECT COUNT(*) AS cnt FROM reimbursement_links WHERE expense_transaction_id = ?
+        `).get(expense_transaction_id) as { cnt: number };
+
+        if (remaining.cnt === 0) {
+          db.prepare(`
+            UPDATE transactions SET reimbursed_at = NULL, reimbursed_note = NULL, updated_at = datetime('now')
+            WHERE id = ?
+          `).run(expense_transaction_id);
+        }
+      }
+
+      // Clear reimbursed_note on the former income
+      db.prepare(`
+        UPDATE transactions SET reimbursed_note = NULL, updated_at = datetime('now')
+        WHERE id = ? AND reimbursed_note = 'Terugbetaling'
+      `).run(transactionId);
+    }
+
+    if (oldType === 'reimbursable' && newType !== 'reimbursable') {
+      // Expense changed away: unlink from all connected incomes
+      const linkedIncomes = db.prepare(`
+        SELECT income_transaction_id FROM reimbursement_links WHERE expense_transaction_id = ?
+      `).all(transactionId) as { income_transaction_id: number }[];
+
+      db.prepare(`DELETE FROM reimbursement_links WHERE expense_transaction_id = ?`).run(transactionId);
+
+      for (const { income_transaction_id } of linkedIncomes) {
+        const remaining = db.prepare(`
+          SELECT COUNT(*) AS cnt FROM reimbursement_links WHERE income_transaction_id = ?
+        `).get(income_transaction_id) as { cnt: number };
+
+        if (remaining.cnt === 0) {
+          db.prepare(`
+            UPDATE transactions SET reimbursed_note = NULL, updated_at = datetime('now')
+            WHERE id = ? AND reimbursed_note = 'Terugbetaling'
+          `).run(income_transaction_id);
+        }
+      }
+
+      // Clear reimbursed_at/note on the former expense
+      db.prepare(`
+        UPDATE transactions SET reimbursed_at = NULL, reimbursed_note = NULL, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(transactionId);
+    }
+  })();
+}

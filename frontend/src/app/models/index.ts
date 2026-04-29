@@ -125,6 +125,26 @@ export interface CsvPreviewRow {
   duplicate: boolean;
 }
 
+export interface ClassifiedPreviewRow {
+  index: number;
+  readable_name: string;
+  category_id: number | null;
+  organization_id: number | null;
+  type: TransactionType;
+  classification_confidence: number;
+  splitwise_expense_id: string | null;
+  splitwise_owed_share: number | null;
+  notes: string | null;
+  user_modified?: boolean;
+}
+
+export interface ClassifyPreviewResult {
+  classifications: ClassifiedPreviewRow[];
+  categories: Category[];
+  organizations: Organization[];
+  tokens: TokenUsage | null;
+}
+
 export interface ImportResult {
   imported: number;
   skipped: number;

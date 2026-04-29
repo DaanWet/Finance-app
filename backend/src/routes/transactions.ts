@@ -6,7 +6,7 @@ import {
   confirmAllTransactions, confirmTransactions, deleteTransactions
 } from '../queries/transactions';
 import { initStreamResponse, sendProgress, sendResult, sendStreamError } from './import';
-import { cleanupLinksForDeletedTransaction } from '../queries/reimbursementLinks';
+import { cleanupLinksForDeletedTransaction, cleanupLinksForTypeChange } from '../queries/reimbursementLinks';
 import { TRANSACTION_TYPES } from '../helpers/constants';
 import { reanalyzeBulk, reanalyzeSingle } from '../services/reanalyzeService';
 import { errorMessage } from '../helpers/errors';
@@ -129,6 +129,12 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const db = getDb();
   const id = Number(req.params['id']);
+  if (req.body.type) {
+    const existing = getTransactionById(db, id);
+    if (existing && existing.type !== req.body.type) {
+      cleanupLinksForTypeChange(db, id, existing.type, req.body.type);
+    }
+  }
   const tx = updateTransaction(db, id, req.body);
   if (!tx) return res.status(404).json({ error: 'Not found' });
   res.json(tx);

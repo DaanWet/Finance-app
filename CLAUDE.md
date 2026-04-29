@@ -18,16 +18,18 @@ backend/src/
                       classificationRules, expenses
   queries/          — transactions.ts, reimbursements.ts, reimbursementLinks.ts, dashboard.ts
   services/
-    aiAnalysis.ts       — Claude API integratie
-    gmailService.ts     — Google OAuth + NMBS ticket parsing
-    excelExport.ts      — Excel onkostennota generatie
-    pdfExport.ts        — PDF bonnen-bundel generatie
-    csvParser.ts        — ING CSV parsing (oud + nieuw formaat)
-    pluxeeCsvParser.ts  — Pluxee maaltijdcheque CSV parsing
-    importService.ts    — 4-pass import orchestratie
-    reanalyzeService.ts — AI heranalyse (single + bulk)
-    advanceMatching.ts  — Voorschot-detectie en linking
-    importHelpers.ts    — NMBS ticket matching + Splitwise expenses fetch + Gmail ticket matching
+    aiAnalysis.ts           — 2 AI calls: classifyTransactions() + matchReimbursements(), legacy analyzeTransactions()
+    merchantProfiles.ts     — Merchant profiel queries uit historiek (counterparty → categorie/type distributie)
+    deterministicMatching.ts — Splitwise matching (bedrag+beschrijving) + obvious advance matching (zonder AI)
+    gmailService.ts         — Google OAuth + NMBS ticket parsing
+    excelExport.ts          — Excel onkostennota generatie
+    pdfExport.ts            — PDF bonnen-bundel generatie
+    csvParser.ts            — ING CSV parsing (oud + nieuw formaat)
+    pluxeeCsvParser.ts      — Pluxee maaltijdcheque CSV parsing
+    importService.ts        — Import orchestratie (2 paden: met/zonder classify-preview)
+    reanalyzeService.ts     — AI heranalyse (single + bulk) met merchant profiles + few-shot
+    advanceMatching.ts      — Voorschot-detectie en linking
+    importHelpers.ts        — NMBS ticket matching + Splitwise expenses fetch + Gmail ticket matching
     analysisHelpers.ts  — Gedeelde AI-analyse helpers (loadAnalysisContext, resolveSplitwise, applyAiResult, TransactionClassification)
   helpers/
     settings.ts     — getSetting(), upsertSetting() voor settings tabel
@@ -57,8 +59,11 @@ frontend/src/app/
 - Nieuw: `Rekeningnummer;Naam van de rekening;Rekening tegenpartij;Omzetnummer;Boekingsdatum;Valutadatum;Bedrag;Munteenheid;Omschrijving;Detail van de omzet;Bericht`
 - Oud: `Datum;Naam;Rekening;Tegenrekening;Code;Afschrijving;Bijschrijving;Mededeling`
 - Preview-endpoint: `POST /api/import/ing-csv/preview`
-- Import-endpoint: `POST /api/import/ing-csv` met `{ selectedIndices: number[] | null }`
-- 5-pass algoritme: (1) opslaan + AI, (1.5) AI cross-batch terugbetaling-matching, (2) within-batch voorschot-linking, (3) DB-niveau voorschot-matching, (4) NMBS ticket matching
+- Import-endpoint: `POST /api/import/ing-csv` met `{ selectedIndices, classifications? }`
+- Classify-preview: `POST /api/import/classify-preview` — AI classificatie zonder opslaan (NDJSON streaming)
+- Import flow (2 paden):
+  - **Pad A (met preview):** CSV preview → classify-preview (AI Call 1) → gebruiker reviewt/corrigeert → import met classificaties
+  - **Pad B (direct):** CSV preview → import zonder classificaties (legacy, AI doet alles)
 
 ## CSV import (Pluxee)
 - Separator: `;`, kolommen: `Datum;Beschrijving;Bedrag`
@@ -67,17 +72,24 @@ frontend/src/app/
 - Merchant name geëxtraheerd uit beschrijving: `"Uitgave MERCHANT (Transactie UUID)"`
 - Transaction ID: `pluxee_<uuid>` (opgeslagen in `ing_transaction_id`)
 - Preview-endpoint: `POST /api/import/pluxee-csv/preview`
-- Import-endpoint: `POST /api/import/pluxee-csv` met `{ selectedIndices: number[] | null }`
-- Hergebruikt dezelfde 5-pass import flow als ING (incl. AI-analyse)
+- Import-endpoint: `POST /api/import/pluxee-csv` met `{ selectedIndices, classifications? }`
+- Deelt dezelfde import flow als ING
 
 ## AI analyse
-- Model: claude-opus-4-6, env var `ANTHROPIC_API_KEY`
-- Input per tx: index, date, amount, counterparty_iban, counterparty_name, omschrijving, detail, bericht
-- Context: categories[], organizations[], splitwiseExpenses[], unreimbursedExpenses[] (alle onterugbetaalde uitgaven uit DB, max 150)
-- Output per tx: readable_name, category_id, organization_id, type, is_advance, advance_repaid_by_index, splitwise_expense_id, notes, matches_existing_id, matches_existing_confidence
-- category_confirmed = 0 bij AI-classificatie, 1 bij handmatig/rules
+- Via `query()` uit `@anthropic-ai/claude-agent-sdk` (Claude Code, geen aparte API-kosten)
+- **2 gescheiden AI calls:**
+  - **Call 1 — Classificatie** (`classifyTransactions()`): categorie, type, readable_name, confidence (0-100)
+    - Context: merchant profiles (historiek per counterparty), few-shot voorbeelden, categorieën, organisaties
+    - JSON output, geen TOON
+  - **Call 2 — Reimbursement matching** (`matchReimbursements()`): within-batch + cross-batch matching
+    - Context: inkomst-transacties + batch expenses + onterugbetaalde uitgaven (max 150)
+    - Alleen aangeroepen als er inkomsten in de batch zitten
+- **Merchant profiles** (`merchantProfiles.ts`): groepering per counterparty_account/name → categorie-distributie, type-distributie, gem. bedrag
+- **Few-shot voorbeelden** (`analysisHelpers.ts`): 2 bevestigde transacties per categorie uit DB
+- **Deterministisch** (zonder AI): Splitwise matching (bedrag ±2%, datum ±365d, beschrijvings-similarity bij meerdere kandidaten), obvious advance matching (zelfde counterparty + tegengesteld bedrag)
+- category_confirmed = 0 bij AI-classificatie, 1 bij handmatig/rules/user-modified
 - Fallback: classification rules (patroonmatch op description)
-- Splitwise matching: bedrag binnen 5%, datum binnen 7 dagen
+- Legacy `analyzeTransactions()` functie blijft beschikbaar als fallback
 
 ## NMBS ticket auto-matching
 - Draait bij import (pass 4), bulk-reanalyze en single reanalyze
@@ -88,9 +100,11 @@ frontend/src/app/
 - Gedeelde helper: `matchNmbsTickets(db, transactionIds)` in `routes/import.ts`
 
 ## Voorschot-detectie
-- Within-batch: AI geeft `advance_repaid_by_index` → reimbursed_at = terugbetalingsdatum + reimbursement_link
-- Cross-batch AI-matching: AI krijgt onterugbetaalde uitgaven als context → `matches_existing_id` + `matches_existing_confidence` (0-100). Bij confidence ≥75: auto-link via `linkAdvanceToRepayment()`. Bij <75: suggestie in notes voor handmatige review.
-- DB-niveau: positieve tx + zelfde counterparty_account + bedrag <10% verschil → auto-reimbursed + reimbursement_link
+- **Deterministisch (pre-AI):** zelfde counterparty_account + tegengesteld teken + bedrag binnen 10% (`matchObviousAdvances()`)
+- **AI Call 2 (matching):** within-batch + cross-batch reimbursement matching via `matchReimbursements()`
+  - Within-batch: AI detecteert terugbetaling-paren in dezelfde import (bv. Tikkie voor Colruyt-aankoop)
+  - Cross-batch: AI matcht inkomsten aan onterugbetaalde uitgaven uit DB (confidence ≥75: auto-link, <75: suggestie)
+- **DB-niveau (post-import):** positieve tx + zelfde counterparty_account + bedrag <10% verschil → auto-reimbursed + reimbursement_link
 
 ## Reimbursement linking
 - Eén inkomst kan meerdere terugbetaalbare uitgaven dekken via `reimbursement_links`
@@ -134,9 +148,10 @@ frontend/src/app/
 | Method | Endpoint | Functie |
 |--------|----------|---------|
 | POST | `/ing-csv/preview` | Parse ING CSV, detecteer duplicaten, return preview rows |
-| POST | `/ing-csv` | Volledige ING import, body: `{ selectedIndices }` |
+| POST | `/ing-csv` | Volledige ING import, body: `{ selectedIndices, classifications? }` |
 | POST | `/pluxee-csv/preview` | Parse Pluxee CSV (alleen uitgaven), detecteer duplicaten |
-| POST | `/pluxee-csv` | Volledige Pluxee import, body: `{ selectedIndices }` |
+| POST | `/pluxee-csv` | Volledige Pluxee import, body: `{ selectedIndices, classifications? }` |
+| POST | `/classify-preview` | AI classificatie zonder opslaan (NDJSON), body: `{ file, selectedIndices, importType }` |
 
 ### Reimbursements (`/api/reimbursements`)
 | Method | Endpoint | Functie |
@@ -191,6 +206,8 @@ SplitwiseExpense { id, description, total_cost, my_owed_share, my_paid_share, da
 SplitwiseBalance { id, name, balance }
 ClassificationRule { id, pattern, type, organization_id, category_id, organization_name?, category_name? }
 CsvPreviewRow { index, date, description, amount, counterparty_account, ing_transaction_id, duplicate }
+ClassifiedPreviewRow { index, readable_name, category_id, organization_id, type, classification_confidence, splitwise_expense_id, splitwise_owed_share, notes, user_modified? }
+ClassifyPreviewResult { classifications: ClassifiedPreviewRow[], categories: Category[], organizations: Organization[], tokens: TokenUsage | null }
 ImportResult { imported, skipped, total, ai_analyzed?, transactions[] }
 ExpenseReceipt { id, transaction_id, filename, content_type, gmail_message_id, created_at }
 WorkExpense extends Transaction { receipts: ExpenseReceipt[] }
@@ -205,8 +222,10 @@ ExpenseCandidateTransaction { id, description, amount, date, organization_name }
 
 ### transactions.ts
 - Signals: transactions, organizations, categories, loading, showModal, editingTx, importResult, previewRows, selectedIndices, editLinks, expenseCandidates, showAddExpenseLink, linkingExpenseId, linkingAmount, linkSaving
+- **Classify-preview signals:** classifiedRows, classifyCategories, classifyOrganizations, isClassified, classifyLoading
 - Computed: unconfirmedCount, selectableCount, duplicateCount, isAllSelected
 - Filters: filterType, filterCategory, filterOrg, filterSearch, filterDateFrom, filterDateTo
+- **Import flow (2-staps):** preview → "Classificeer" knop → AI classificatie (streaming) → enhanced preview met bewerkbare categorie/type/org + confidence badges → "Importeer" knop. Fallback: "Direct importeren" knop skippt classificatie-preview.
 - Edit modal: voor inkomst-transacties toont "Gekoppelde terugbetalingen" sectie met link-beheer; voor reimbursable toont "Gekoppeld aan inkomst" read-only
 
 ### dashboard.ts

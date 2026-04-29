@@ -559,3 +559,32 @@ td.cell-type {
   font-family: monospace;
   margin-left: 0.25rem;
 }
+
+// --- Classified preview ---
+.modal-classified { max-width: 1100px; }
+.preview-progress {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
+  .progress-bar { flex: 1; height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--primary); border-radius: 2px; transition: width 0.4s ease; }
+}
+.inline-edit {
+  width: 100%; padding: 0.2rem 0.375rem; border: 1px solid transparent;
+  border-radius: var(--radius); background: transparent; color: var(--text); font-size: inherit;
+  &:hover { border-color: var(--border); }
+  &:focus { border-color: var(--primary); outline: none; background: var(--bg-card); }
+}
+.inline-select {
+  padding: 0.2rem 0.25rem; border: 1px solid transparent; border-radius: var(--radius);
+  background: transparent; color: var(--text); font-size: 0.8rem; cursor: pointer; max-width: 140px;
+  &:hover { border-color: var(--border); }
+  &:focus { border-color: var(--primary); outline: none; }
+}
+.confidence-badge {
+  display: inline-block; padding: 0.125rem 0.375rem; border-radius: 999px;
+  font-size: 0.7rem; font-weight: 600; min-width: 2rem; text-align: center;
+}
+.confidence-high { background: rgba(16,185,129,0.15); color: #059669; }
+.confidence-medium { background: rgba(245,158,11,0.15); color: #d97706; }
+.confidence-low { background: rgba(239,68,68,0.15); color: #dc2626; }
+.row-low-confidence { background: rgba(239,68,68,0.04); }

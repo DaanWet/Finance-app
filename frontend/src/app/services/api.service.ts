@@ -5,6 +5,7 @@ import {
   Transaction, Organization, Category, ReimbursementGroup,
   DashboardSummary, SplitwiseExpense, SplitwiseBalance,
   ClassificationRule, ImportResult, CsvPreviewRow,
+  ClassifiedPreviewRow, ClassifyPreviewResult,
   ExpenseReceipt, ExpensesPageData, GmailFetchResult,
   ReimbursementLink, IncomeCandidateTransaction, ExpenseCandidateTransaction,
   StreamProgress
@@ -184,6 +185,23 @@ export class ApiService {
     formData.append('file', file);
     formData.append('selectedIndices', JSON.stringify(selectedIndices));
     return this.streamPost<ImportResult>(`${BASE}/import/pluxee-csv`, formData);
+  }
+
+  classifyPreview(file: File, selectedIndices: number[], importType: 'ing' | 'pluxee'): Observable<StreamProgress<ClassifyPreviewResult>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('selectedIndices', JSON.stringify(selectedIndices));
+    formData.append('importType', importType);
+    return this.streamPost<ClassifyPreviewResult>(`${BASE}/import/classify-preview`, formData);
+  }
+
+  importWithClassifications(file: File, selectedIndices: number[], classifications: ClassifiedPreviewRow[], importType: 'ing' | 'pluxee'): Observable<StreamProgress<ImportResult>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('selectedIndices', JSON.stringify(selectedIndices));
+    formData.append('classifications', JSON.stringify(classifications));
+    const endpoint = importType === 'pluxee' ? 'pluxee-csv' : 'ing-csv';
+    return this.streamPost<ImportResult>(`${BASE}/import/${endpoint}`, formData);
   }
 
   // Expenses

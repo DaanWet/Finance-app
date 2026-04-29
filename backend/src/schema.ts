@@ -218,6 +218,14 @@ function fixSplitwiseIds(db: Database.Database): void {
   `);
 }
 
+function createAnalysisIndexes(db: Database.Database): void {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_tx_counterparty_account ON transactions(counterparty_account);
+    CREATE INDEX IF NOT EXISTS idx_tx_counterparty_name ON transactions(counterparty_name);
+    CREATE INDEX IF NOT EXISTS idx_tx_category_confirmed ON transactions(category_confirmed);
+  `);
+}
+
 function ensureNewCategories(db: Database.Database): void {
   const ensureCat = db.prepare("INSERT OR IGNORE INTO categories (name, color, icon) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM categories WHERE name = ?)");
   ensureCat.run('Vaste lasten thuis', '#10b981', '\u{1F3E0}', 'Vaste lasten thuis');
@@ -260,6 +268,7 @@ export function runMigrations(db: Database.Database): void {
   createLinkTables(db);
   migrateRemoveWorkExpense(db);
   fixSplitwiseIds(db);
+  createAnalysisIndexes(db);
   ensureNewCategories(db);
   seedInitialData(db);
 }

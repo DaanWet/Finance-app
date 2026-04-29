@@ -212,10 +212,13 @@
 <!-- Import preview modal -->
 @if (showImportPreview()) {
   <div class="modal-overlay" (click)="showImportPreview.set(false)">
-    <div class="modal modal-preview" (click)="$event.stopPropagation()">
+    <div class="modal modal-preview" [class.modal-classified]="isClassified()" (click)="$event.stopPropagation()">
       <div class="modal-header">
-        <h2>CSV Preview — {{ previewRows().length }} rijen</h2>
-        <button class="btn-icon" (click)="showImportPreview.set(false)">✕</button>
+        <h2>
+          @if (isClassified()) { Classificatie review } @else { CSV Preview }
+          — {{ previewRows().length }} rijen
+        </h2>
+        <button class="btn-icon" (click)="showImportPreview.set(false); isClassified.set(false); classifiedRows.set([])">✕</button>
       </div>
       <div class="preview-filter-bar">
         <label>Van</label>
@@ -229,29 +232,107 @@
           {{ filteredPreviewRows().length }} van {{ previewRows().length }} rijen
         </span>
       </div>
+
+      <!-- Progress bar during classification -->
+      @if (classifyLoading() && importProgress(); as prog) {
+        <div class="preview-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" [style.width.%]="prog.progress"></div>
+          </div>
+          <span class="text-muted" style="font-size:0.8rem">{{ prog.message }}</span>
+          @if (importTokens(); as t) {
+            <span class="text-muted" style="font-size:0.75rem;margin-left:auto">{{ formatTokens(t) }}</span>
+          }
+        </div>
+      }
+
       <div class="modal-body preview-body">
         <table class="preview-table">
           <thead>
             <tr>
-              <th><input type="checkbox" [checked]="isAllSelected()" [indeterminate]="selectedCount() > 0 && !isAllSelected()" (change)="toggleAll()"></th>
+              @if (!isClassified()) {
+                <th><input type="checkbox" [checked]="isAllSelected()" [indeterminate]="selectedCount() > 0 && !isAllSelected()" (change)="toggleAll()"></th>
+              }
               <th>Datum</th>
-              <th>Beschrijving</th>
+              <th>{{ isClassified() ? 'Naam' : 'Beschrijving' }}</th>
               <th style="text-align:right">Bedrag</th>
-              <th>Tegenpartij</th>
+              @if (!isClassified()) {
+                <th>Tegenpartij</th>
+              }
+              @if (isClassified()) {
+                <th>Categorie</th>
+                <th>Type</th>
+                @if (classifyOrganizations().length > 0) {
+                  <th>Organisatie</th>
+                }
+                <th style="text-align:center">Conf.</th>
+              }
               <th></th>
             </tr>
           </thead>
           <tbody>
             @for (row of filteredPreviewRows(); track row.index) {
-              <tr [class.row-duplicate]="row.duplicate">
-                <td><input type="checkbox" [checked]="selectedIndices().has(row.index)" [disabled]="row.duplicate" (change)="toggleRow(row.index)"></td>
+              @let cl = getClassification(row.index);
+              <tr [class.row-duplicate]="row.duplicate" [class.row-low-confidence]="cl && cl.classification_confidence < 50">
+                @if (!isClassified()) {
+                  <td><input type="checkbox" [checked]="selectedIndices().has(row.index)" [disabled]="row.duplicate" (change)="toggleRow(row.index)"></td>
+                }
                 <td class="text-muted">{{ formatDate(row.date) }}</td>
-                <td>{{ row.description }}</td>
+                <td>
+                  @if (isClassified() && cl) {
+                    <input type="text" class="inline-edit" [value]="cl.readable_name"
+                      (change)="updateClassification(row.index, 'readable_name', $any($event.target).value)">
+                  } @else {
+                    {{ row.description }}
+                  }
+                </td>
                 <td style="text-align:right" [class]="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
                   {{ row.amount >= 0 ? '+' : '-' }}{{ formatEur(row.amount) }}
                 </td>
-                <td class="text-muted preview-iban">{{ row.counterparty_account ?? '—' }}</td>
-                <td>@if (row.duplicate) { <span class="badge-duplicate">duplicaat</span> }</td>
+                @if (!isClassified()) {
+                  <td class="text-muted preview-iban">{{ row.counterparty_account ?? '—' }}</td>
+                }
+                @if (isClassified() && cl) {
+                  <td>
+                    <select class="inline-select" [ngModel]="cl.category_id"
+                      (ngModelChange)="updateClassification(row.index, 'category_id', $event ? +$event : null)">
+                      <option [ngValue]="null">—</option>
+                      @for (cat of classifyCategories(); track cat.id) {
+                        <option [ngValue]="cat.id">{{ cat.icon }} {{ cat.name }}</option>
+                      }
+                    </select>
+                  </td>
+                  <td>
+                    <select class="inline-select" [ngModel]="cl.type"
+                      (ngModelChange)="updateClassification(row.index, 'type', $event)">
+                      <option value="personal">Persoonlijk</option>
+                      <option value="reimbursable">Terugbetaalbaar</option>
+                      <option value="income">Inkomst</option>
+                      <option value="savings">Sparen</option>
+                    </select>
+                  </td>
+                  @if (classifyOrganizations().length > 0) {
+                    <td>
+                      <select class="inline-select" [ngModel]="cl.organization_id"
+                        (ngModelChange)="updateClassification(row.index, 'organization_id', $event ? +$event : null)">
+                        <option [ngValue]="null">—</option>
+                        @for (org of classifyOrganizations(); track org.id) {
+                          <option [ngValue]="org.id">{{ org.name }}</option>
+                        }
+                      </select>
+                    </td>
+                  }
+                  <td style="text-align:center">
+                    <span class="confidence-badge" [class]="confidenceClass(cl.classification_confidence)"
+                      [title]="'Confidence: ' + cl.classification_confidence + '%'">
+                      {{ cl.classification_confidence }}
+                    </span>
+                  </td>
+                }
+                <td>
+                  @if (row.duplicate) { <span class="badge-duplicate">duplicaat</span> }
+                  @if (cl?.notes) { <span class="text-muted" style="font-size:0.75rem" [title]="cl!.notes!">📝</span> }
+                </td>
               </tr>
             }
           </tbody>
@@ -259,15 +340,32 @@
       </div>
       <div class="modal-footer preview-footer">
         <span class="preview-summary">
-          <strong>{{ selectedCount() }}</strong> geselecteerd
-          @if (totalSelectableCount() !== selectableCount()) { (van {{ totalSelectableCount() }} totaal) }
-          @if (duplicateCount() > 0) { · {{ duplicateCount() }} duplicaten }
+          @if (!isClassified()) {
+            <strong>{{ selectedCount() }}</strong> geselecteerd
+            @if (totalSelectableCount() !== selectableCount()) { (van {{ totalSelectableCount() }} totaal) }
+            @if (duplicateCount() > 0) { · {{ duplicateCount() }} duplicaten }
+          } @else {
+            <strong>{{ classifiedRows().length }}</strong> geclassificeerd
+            @if (importTokens(); as t) { · {{ formatTokens(t) }} }
+          }
         </span>
         <div style="display:flex;gap:0.5rem">
-          <button class="btn-secondary" (click)="showImportPreview.set(false)">Annuleren</button>
-          <button class="btn-primary" (click)="confirmImport()" [disabled]="selectedCount() === 0">
-            📥 Importeer {{ selectedCount() }}
-          </button>
+          <button class="btn-secondary" (click)="showImportPreview.set(false); isClassified.set(false); classifiedRows.set([])">Annuleren</button>
+          @if (!isClassified()) {
+            <button class="btn-secondary" (click)="classifyPreview()" [disabled]="selectedCount() === 0 || classifyLoading()">
+              🔍 Classificeer {{ selectedCount() }}
+            </button>
+            <button class="btn-primary" (click)="confirmImport()" [disabled]="selectedCount() === 0">
+              📥 Direct importeren
+            </button>
+          } @else {
+            <button class="btn-secondary" (click)="isClassified.set(false); classifiedRows.set([])">
+              Terug
+            </button>
+            <button class="btn-primary" (click)="confirmImport()">
+              📥 Importeer {{ classifiedRows().length }}
+            </button>
+          }
         </div>
       </div>
     </div>
