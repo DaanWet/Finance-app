@@ -12,6 +12,7 @@ import splitwiseRouter from './routes/splitwise';
 import importRouter from './routes/import';
 import classificationRulesRouter from './routes/classificationRules';
 import expensesRouter from './routes/expenses';
+import recurringRouter from './routes/recurring';
 
 const app = express();
 const PORT = process.env['PORT'] ?? 3000;
@@ -29,6 +30,7 @@ app.use('/api/splitwise', splitwiseRouter);
 app.use('/api/import', importRouter);
 app.use('/api/classification-rules', classificationRulesRouter);
 app.use('/api/expenses', expensesRouter);
+app.use('/api/recurring', recurringRouter);
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
