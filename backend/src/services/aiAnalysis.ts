@@ -122,7 +122,7 @@ export interface AnalysisResult {
 
 // ─── Shared helper: call query() and stream tokens ───────────────────────────
 
-async function callQuery(
+export async function callQuery(
   prompt: string,
   onUsage?: (usage: TokenUsage) => void,
 ): Promise<{ text: string; usage: TokenUsage }> {
@@ -198,7 +198,7 @@ async function callQuery(
 }
 
 /** Extract JSON from AI response text (handles markdown code blocks and raw JSON). */
-function parseJsonResponse<T>(text: string): T | null {
+export function parseJsonResponse<T>(text: string): T | null {
   if (!text) return null;
   // Try direct parse first
   try { return JSON.parse(text.trim()) as T; } catch {}
