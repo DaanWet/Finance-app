@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
-import { DetectedSeries, MONTHLY_FACTOR, Cadence } from '../services/recurringDetection';
+import { DetectedSeries, MONTHLY_FACTOR, Cadence, buildSeriesFromTransactions } from '../services/recurringDetection';
+import { Transaction, getTransactionsByIds } from './transactions';
 
 export interface DetectionTxRow {
   id: number;
@@ -189,4 +190,21 @@ export function updateSeries(db: Database.Database, id: number, input: UpdateSer
   `).run(status, customName, id);
 
   return getSeriesById(db, id);
+}
+
+/**
+ * Herbereken het lidmaatschap van een reeks via de detectiemotor (gegarandeerd
+ * consistent met de scan) en geef de bijbehorende transacties terug.
+ */
+export function getSeriesMemberTransactions(db: Database.Database, id: number): Transaction[] {
+  const series = getSeriesById(db, id);
+  if (!series) return [];
+
+  const txs = getDetectionTransactions(db);
+  const today = new Date().toISOString().slice(0, 10);
+  const detected = buildSeriesFromTransactions(txs, today);
+  const match = detected.find(s => s.series_key === series.series_key);
+  if (!match) return [];
+
+  return getTransactionsByIds(db, match.member_ids);
 }
