@@ -7,11 +7,14 @@ import {
   type TokenUsage,
   type MatchCandidate,
   type UnreimbursedExpense,
+  type UnmatchedIncome,
 } from './aiAnalysis';
 import { fetchSplitwiseExpenses } from './splitwiseClient';
 import { loadAnalysisContext, selectFewShotExamples, linkAndMatchTransactions } from './analysisHelpers';
 import { getMerchantProfiles, findMatchingProfiles } from './merchantProfiles';
 import { matchSplitwiseDeterministic } from './deterministicMatching';
+import { getUnmatchedIncomes } from '../queries/reimbursementLinks';
+import { linkAdvanceToRepayment } from './advanceMatching';
 
 function buildReanalyzeInput(tx: { date: string; amount: number; description: string; counterparty_account: string | null; counterparty_name: string | null; original_description: string | null }, index: number): TransactionAnalysisInput {
   return {
@@ -128,7 +131,19 @@ export async function reanalyzeBulk(
     };
   });
 
-  if (incomeTransactions.length > 0 && (batchExpenses.length > 0 || (unreimbursedExpenses && unreimbursedExpenses.length > 0))) {
+  // Load unmatched DB incomes for reverse cross-batch matching
+  const dbIncomesRaw = batchExpenses.length > 0
+    ? getUnmatchedIncomes(db, { excludeIds: txIds })
+    : [];
+  const dbIncomes: UnmatchedIncome[] = dbIncomesRaw.map(i => ({
+    id: i.id, date: i.date, amount: i.amount, description: i.description,
+    counterparty_name: i.counterparty_name, remaining_amount: i.remaining_amount,
+  }));
+
+  const hasForward = incomeTransactions.length > 0 && (batchExpenses.length > 0 || (unreimbursedExpenses && unreimbursedExpenses.length > 0));
+  const hasReverse = batchExpenses.length > 0 && dbIncomes.length > 0;
+
+  if (hasForward || hasReverse) {
     onProgress('Terugbetalingen matchen...', 82);
     const dbExpenses: UnreimbursedExpense[] = (unreimbursedExpenses ?? []).map(e => ({
       id: e.id, date: e.date, amount: e.amount, description: e.description,
@@ -136,18 +151,41 @@ export async function reanalyzeBulk(
     }));
 
     const { matches } = await matchReimbursementsAI(
-      incomeTransactions, batchExpenses, dbExpenses,
+      incomeTransactions, batchExpenses, dbExpenses, dbIncomes,
       (tokens) => onProgress('Terugbetalingen matchen...', 82, tokens),
     );
 
     if (matches && matches.length > 0) {
+      const dbIncomeById = new Map(dbIncomes.map(i => [i.id, i]));
+      const txById = new Map(txs.map(t => [t.id, t]));
+
       for (const match of matches) {
-        if (match.confidence >= 75) {
-          let existing = aiResults.find(r => r.index === match.income_index);
-          if (existing && match.match_type === 'cross_batch') {
-            existing.matches_existing_id = match.expense_id;
-            existing.matches_existing_confidence = match.confidence;
-          }
+        if (match.confidence < 75) continue;
+
+        // Reverse cross-batch: expense in this batch ↔ income already in DB
+        if (match.match_type === 'reverse_cross_batch' && match.income_id != null && match.expense_index != null) {
+          const expenseTx = txs[match.expense_index];
+          const income = dbIncomeById.get(match.income_id);
+          if (!expenseTx || !income) continue;
+          // Verify the expense isn't already reimbursed (could have been linked in earlier loop pass)
+          const fresh = txById.get(expenseTx.id);
+          if (!fresh) continue;
+          const amount = Math.min(Math.abs(expenseTx.amount), income.remaining_amount);
+          linkAdvanceToRepayment(db, {
+            expenseId: expenseTx.id,
+            incomeId: income.id,
+            amount,
+            reimbursedAt: income.date,
+            note: `Automatisch gedetecteerd bij heranalyse (AI reverse-match, ${match.confidence}% confidence)`,
+          });
+          continue;
+        }
+
+        // Forward matching: cross_batch sets matches_existing_id for linkAndMatchTransactions pipeline
+        const existing = aiResults.find(r => r.index === match.income_index);
+        if (existing && match.match_type === 'cross_batch') {
+          existing.matches_existing_id = match.expense_id;
+          existing.matches_existing_confidence = match.confidence;
         }
       }
     }
@@ -227,4 +265,6 @@ export async function reanalyzeSingle(
     note: 'Automatisch gedetecteerd bij heranalyse',
     onProgress: noopProgress,
   });
+
+  return { reanalyzed: 1 };
 }

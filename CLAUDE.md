@@ -81,9 +81,10 @@ frontend/src/app/
   - **Call 1 — Classificatie** (`classifyTransactions()`): categorie, type, readable_name, confidence (0-100)
     - Context: merchant profiles (historiek per counterparty), few-shot voorbeelden, categorieën, organisaties
     - JSON output, geen TOON
-  - **Call 2 — Reimbursement matching** (`matchReimbursements()`): within-batch + cross-batch matching
-    - Context: inkomst-transacties + batch expenses + onterugbetaalde uitgaven (max 150)
-    - Alleen aangeroepen als er inkomsten in de batch zitten
+  - **Call 2 — Reimbursement matching** (`matchReimbursements()`): bidirectioneel — within-batch + cross-batch + **reverse cross-batch**
+    - Context: inkomst-transacties + batch expenses + onterugbetaalde uitgaven uit DB (max 150) + **niet-volledig-gekoppelde inkomsten uit DB (max 100)**
+    - **Reverse cross-batch**: bij retroactieve imports (bv. 2024 na 2025) wordt een uitgave in de batch automatisch gekoppeld aan een reeds geïmporteerde inkomst in DB
+    - Aangeroepen als er ofwel inkomsten in de batch zitten (forward), ofwel batch-uitgaven + reeds-geïmporteerde inkomsten in DB (reverse)
 - **Merchant profiles** (`merchantProfiles.ts`): groepering per counterparty_account/name → categorie-distributie, type-distributie, gem. bedrag
 - **Few-shot voorbeelden** (`analysisHelpers.ts`): 2 bevestigde transacties per categorie uit DB
 - **Deterministisch** (zonder AI): Splitwise matching (bedrag ±2%, datum ±365d, beschrijvings-similarity bij meerdere kandidaten), obvious advance matching (zelfde counterparty + tegengesteld bedrag)

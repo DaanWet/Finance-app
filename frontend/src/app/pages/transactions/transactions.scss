@@ -588,3 +588,63 @@ td.cell-type {
 .confidence-medium { background: rgba(245,158,11,0.15); color: #d97706; }
 .confidence-low { background: rgba(239,68,68,0.15); color: #dc2626; }
 .row-low-confidence { background: rgba(239,68,68,0.04); }
+
+.name-with-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-width: 0;
+
+  .inline-edit { flex: 1; min-width: 0; }
+}
+
+.btn-row-expand {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.7rem;
+  padding: 0 0.25rem;
+  flex-shrink: 0;
+  &:hover { color: var(--text); }
+}
+
+.row-detail {
+  td {
+    padding: 0.5rem 1.5rem 0.75rem;
+    background: rgba(99,102,241,0.04);
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.5rem 1.5rem;
+  font-size: 0.8rem;
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.detail-label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.detail-value {
+  color: var(--text);
+  word-break: break-word;
+  &.mono { font-family: monospace; font-size: 0.78rem; }
+}
+
+.detail-ai-note .detail-value {
+  font-style: italic;
+  color: #818cf8;
+}

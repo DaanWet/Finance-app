@@ -256,17 +256,19 @@ export async function linkAndMatchTransactions(opts: LinkAndMatchOptions): Promi
 
   // Pass 2: DB-level advance matching
   for (const tx of txs) {
+    if (!tx) continue;
     findAndLinkAdvance(db, tx, note);
   }
 
   // Pass 3: reverse advance matching (expense → existing income)
   for (const tx of txs) {
+    if (!tx) continue;
     findAndLinkReverseAdvance(db, tx, note);
   }
 
   // Pass 4: NMBS ticket matching
   onProgress('NMBS tickets koppelen...', 96);
-  const nmbsResult = await matchNmbsTickets(db, txs.map(t => t.id));
+  const nmbsResult = await matchNmbsTickets(db, txs.filter(t => t).map(t => t.id));
 
   return { nmbs_matched: nmbsResult.matched, ai_matched };
 }

@@ -61,10 +61,21 @@ export interface UnreimbursedExpense {
   organization_name: string | null;
 }
 
+export interface UnmatchedIncome {
+  id: number;
+  date: string;
+  amount: number;
+  description: string;
+  counterparty_name: string | null;
+  remaining_amount: number;
+}
+
 export interface ReimbursementMatch {
-  income_index: number;
-  expense_id: number;
-  match_type: 'within_batch' | 'cross_batch';
+  income_index: number;             // -1 als income uit DB (reverse_cross_batch)
+  income_id: number | null;         // gezet bij reverse_cross_batch
+  expense_index: number | null;     // gezet bij reverse_cross_batch (expense uit batch)
+  expense_id: number | null;        // gezet bij within_batch en cross_batch
+  match_type: 'within_batch' | 'cross_batch' | 'reverse_cross_batch';
   confidence: number;
 }
 
@@ -277,30 +288,37 @@ export async function matchReimbursements(
   incomeTransactions: MatchCandidate[],
   batchExpenses: MatchCandidate[],
   dbExpenses: UnreimbursedExpense[],
+  dbIncomes: UnmatchedIncome[],
   onUsage?: (usage: TokenUsage) => void,
 ): Promise<{ matches: ReimbursementMatch[] | null; usage: TokenUsage | null }> {
-  if (incomeTransactions.length === 0) return { matches: null, usage: null };
-  if (batchExpenses.length === 0 && dbExpenses.length === 0) return { matches: null, usage: null };
+  // Need at least one income+expense combination to attempt matching
+  const hasForwardCandidates = incomeTransactions.length > 0 && (batchExpenses.length > 0 || dbExpenses.length > 0);
+  const hasReverseCandidates = batchExpenses.length > 0 && dbIncomes.length > 0;
+  if (!hasForwardCandidates && !hasReverseCandidates) return { matches: null, usage: null };
 
-  const prompt = `Je bent een financieel analysator. Bepaal welke inkomende transacties terugbetalingen zijn van uitgaven.
+  const prompt = `Je bent een financieel analysator. Bepaal welke transacties terugbetalingen zijn van uitgaven.
 Geef ALLEEN geldige JSON terug. Geen uitleg, geen extra tekst.
 
-## Inkomende transacties (uit deze import)
+${incomeTransactions.length > 0 ? `## Inkomende transacties (uit deze import)
 ${JSON.stringify(incomeTransactions, null, 2)}
-
+` : '## Inkomende transacties (uit deze import)\n(geen)\n'}
 ${batchExpenses.length > 0 ? `## Uitgaven uit dezelfde batch (type=reimbursable)
 ${JSON.stringify(batchExpenses, null, 2)}
 ` : ''}
 ## Openstaande uitgaven uit database
 ${dbExpenses.length > 0 ? JSON.stringify(dbExpenses, null, 2) : '(geen openstaande uitgaven)'}
 
+## Recente inkomsten uit database (nog niet volledig gekoppeld, kunnen oude batch-uitgaven hebben terugbetaald)
+${dbIncomes.length > 0 ? JSON.stringify(dbIncomes, null, 2) : '(geen)'}
+
 ## Regels
-- Within-batch: een inkomst kan een terugbetaling zijn van een uitgave in dezelfde batch (bv. Tikkie-betaling voor een eerdere aankoop)
-- Cross-batch: een inkomst kan een terugbetaling zijn van een bestaande uitgave uit de database
+- Within-batch: een inkomst in deze batch kan een terugbetaling zijn van een uitgave in dezelfde batch (bv. Tikkie-betaling voor een eerdere aankoop)
+- Cross-batch: een inkomst in deze batch kan een terugbetaling zijn van een bestaande openstaande uitgave uit de database
+- Reverse cross-batch: een uitgave in deze batch (typisch retroactieve import van oude data) kan al eerder zijn terugbetaald door een inkomst die al in de database staat. Match op zelfde criteria.
 - Match op:
-  - Gelijkaardig bedrag (verschil < 10%)
+  - Gelijkaardig bedrag (verschil < 10%, of remaining_amount van DB-inkomst dekt de uitgave)
   - Zelfde of gelijkaardig counterparty, of verwijzing in de beschrijving
-  - Tijdsverband (terugbetalingen komen meestal binnen 60 dagen)
+  - Tijdsverband (terugbetalingen komen meestal binnen 60 dagen, maar bij retroactieve imports kan dit verder uit elkaar liggen)
 - Wees conservatief: alleen matchen als je redelijk zeker bent
 - Confidence scoring:
   - 90+: zelfde counterparty + zelfde bedrag
@@ -308,20 +326,38 @@ ${dbExpenses.length > 0 ? JSON.stringify(dbExpenses, null, 2) : '(geen openstaan
   - 50-69: bedrag klopt maar counterparty verschilt (bv. Tikkie, overschrijving via derde)
 
 ## Output formaat
-Geef ALLEEN een JSON object terug:
-{"matches": [{"income_index": 0, "expense_id": 42, "match_type": "cross_batch", "confidence": 90}, ...]}
+Geef ALLEEN een JSON object terug. Elke match heeft één van drie vormen afhankelijk van match_type:
 
-expense_id is:
-- Voor within-batch matches: de "id" van de expense uit "Uitgaven uit dezelfde batch"
-- Voor cross-batch matches: de "id" van de expense uit "Openstaande uitgaven uit database"
+- within_batch: {"income_index": <int>, "expense_id": <batch-expense-id>, "match_type": "within_batch", "confidence": <int>}
+- cross_batch:  {"income_index": <int>, "expense_id": <db-expense-id>, "match_type": "cross_batch", "confidence": <int>}
+- reverse_cross_batch: {"income_id": <db-income-id>, "expense_index": <int>, "match_type": "reverse_cross_batch", "confidence": <int>}
+
+Velden die niet van toepassing zijn op een match_type mag je weglaten of op null zetten.
+
+Voorbeeld:
+{"matches": [
+  {"income_index": 0, "expense_id": 42, "match_type": "cross_batch", "confidence": 90},
+  {"income_id": 123, "expense_index": 2, "match_type": "reverse_cross_batch", "confidence": 85}
+]}
 
 Als er geen matches zijn, geef: {"matches": []}`;
 
   try {
     const { text, usage } = await callQuery(prompt, onUsage);
-    const parsed = parseJsonResponse<{ matches: ReimbursementMatch[] }>(text);
+    const parsed = parseJsonResponse<{ matches: Partial<ReimbursementMatch>[] }>(text);
     if (!parsed || !Array.isArray(parsed.matches)) return { matches: [], usage };
-    return { matches: parsed.matches, usage };
+
+    // Normalize matches: ensure all fields are set (null where not applicable)
+    const normalized: ReimbursementMatch[] = parsed.matches.map(m => ({
+      income_index: m.income_index ?? -1,
+      income_id: m.income_id ?? null,
+      expense_index: m.expense_index ?? null,
+      expense_id: m.expense_id ?? null,
+      match_type: m.match_type ?? 'within_batch',
+      confidence: m.confidence ?? 0,
+    }));
+
+    return { matches: normalized, usage };
   } catch (err) {
     console.error('[AI Matching] Fout:', err instanceof Error ? err.message : err);
     return { matches: null, usage: null };

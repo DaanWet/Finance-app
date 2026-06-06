@@ -273,6 +273,7 @@
           <tbody>
             @for (row of filteredPreviewRows(); track row.index) {
               @let cl = getClassification(row.index);
+              @let isExpanded = expandedPreviewIndex() === row.index;
               <tr [class.row-duplicate]="row.duplicate" [class.row-low-confidence]="cl && cl.classification_confidence < 50">
                 @if (!isClassified()) {
                   <td><input type="checkbox" [checked]="selectedIndices().has(row.index)" [disabled]="row.duplicate" (change)="toggleRow(row.index)"></td>
@@ -280,10 +281,20 @@
                 <td class="text-muted">{{ formatDate(row.date) }}</td>
                 <td>
                   @if (isClassified() && cl) {
-                    <input type="text" class="inline-edit" [value]="cl.readable_name"
-                      (change)="updateClassification(row.index, 'readable_name', $any($event.target).value)">
+                    <div class="name-with-toggle">
+                      <button class="btn-row-expand" type="button" (click)="togglePreviewExpand(row.index)" [title]="isExpanded ? 'Verberg originele data' : 'Toon originele data'">
+                        {{ isExpanded ? '▼' : '▶' }}
+                      </button>
+                      <input type="text" class="inline-edit" [value]="cl.readable_name"
+                        (change)="updateClassification(row.index, 'readable_name', $any($event.target).value)">
+                    </div>
                   } @else {
-                    {{ row.description }}
+                    <div class="name-with-toggle">
+                      <button class="btn-row-expand" type="button" (click)="togglePreviewExpand(row.index)" [title]="isExpanded ? 'Verberg originele data' : 'Toon originele data'">
+                        {{ isExpanded ? '▼' : '▶' }}
+                      </button>
+                      <span>{{ row.description }}</span>
+                    </div>
                   }
                 </td>
                 <td style="text-align:right" [class]="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
@@ -334,6 +345,33 @@
                   @if (cl?.notes) { <span class="text-muted" style="font-size:0.75rem" [title]="cl!.notes!">📝</span> }
                 </td>
               </tr>
+              @if (isExpanded) {
+                <tr class="row-detail">
+                  <td [attr.colspan]="isClassified() ? (classifyOrganizations().length > 0 ? 8 : 7) : 6">
+                    <div class="detail-grid">
+                      @if (row.counterparty_name) {
+                        <div class="detail-row"><span class="detail-label">Tegenpartij naam</span><span class="detail-value">{{ row.counterparty_name }}</span></div>
+                      }
+                      @if (row.counterparty_account) {
+                        <div class="detail-row"><span class="detail-label">IBAN tegenpartij</span><span class="detail-value mono">{{ row.counterparty_account }}</span></div>
+                      }
+                      @if (row.bericht) {
+                        <div class="detail-row"><span class="detail-label">Bericht / Mededeling</span><span class="detail-value">{{ row.bericht }}</span></div>
+                      }
+                      @if (row.detail) {
+                        <div class="detail-row"><span class="detail-label">Detail van de omzet</span><span class="detail-value">{{ row.detail }}</span></div>
+                      }
+                      @if (row.omschrijving && row.omschrijving !== row.counterparty_name) {
+                        <div class="detail-row"><span class="detail-label">Omschrijving (CSV)</span><span class="detail-value">{{ row.omschrijving }}</span></div>
+                      }
+                      <div class="detail-row"><span class="detail-label">Transactie ID</span><span class="detail-value mono">{{ row.ing_transaction_id }}</span></div>
+                      @if (cl?.notes) {
+                        <div class="detail-row detail-ai-note"><span class="detail-label">AI-notitie</span><span class="detail-value">{{ cl!.notes }}</span></div>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>

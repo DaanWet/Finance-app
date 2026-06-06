@@ -144,6 +144,47 @@ export function getIncomeCandidates(
   `).all() as IncomeCandidateRow[];
 }
 
+export interface UnmatchedIncomeRow {
+  id: number;
+  date: string;
+  amount: number;
+  description: string;
+  counterparty_name: string | null;
+  remaining_amount: number;
+}
+
+/**
+ * Returns incomes that have remaining unmatched amount (i.e. not yet fully consumed by
+ * reimbursement_links). Used for reverse cross-batch matching during retroactive imports.
+ */
+export function getUnmatchedIncomes(
+  db: Database.Database,
+  options?: { limit?: number; excludeIds?: number[] }
+): UnmatchedIncomeRow[] {
+  const limit = options?.limit ?? 100;
+  const excludeIds = options?.excludeIds ?? [];
+
+  let exclusion = '';
+  const params: (string | number)[] = [];
+  if (excludeIds.length > 0) {
+    exclusion = `AND t.id NOT IN (${excludeIds.map(() => '?').join(',')})`;
+    params.push(...excludeIds);
+  }
+  params.push(limit);
+
+  return db.prepare(`
+    SELECT t.id, t.date, t.amount, t.description, t.counterparty_name,
+           t.amount - COALESCE(SUM(rl.amount), 0) AS remaining_amount
+    FROM transactions t
+    LEFT JOIN reimbursement_links rl ON rl.income_transaction_id = t.id
+    WHERE t.type = 'income' AND t.amount > 0 ${exclusion}
+    GROUP BY t.id
+    HAVING remaining_amount > 0
+    ORDER BY t.date DESC
+    LIMIT ?
+  `).all(...params) as UnmatchedIncomeRow[];
+}
+
 export function getExpenseCandidates(
   db: Database.Database,
   organizationId?: number

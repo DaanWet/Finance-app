@@ -54,6 +54,10 @@ router.post('/ing-csv/preview', upload.single('file'), (req: Request, res: Respo
       description: row.description,
       amount: row.amount,
       counterparty_account: row.counterparty_account,
+      counterparty_name: row.counterparty_name,
+      bericht: row.raw['Bericht'] || row.raw['Mededeling'] || null,
+      detail: row.raw['Detail van de omzet'] || null,
+      omschrijving: row.raw['Omschrijving'] || null,
       ing_transaction_id: row.ing_transaction_id,
       duplicate: !!existing,
     };
@@ -90,6 +94,8 @@ router.post('/ing-csv', upload.single('file'), async (req: Request, res: Respons
     }, preClassifications);
     sendResult(res, result);
   } catch (err) {
+    console.error('[ing-csv import] Error:', err);
+    if (err instanceof Error && err.stack) console.error(err.stack);
     sendStreamError(res, 'Import mislukt: ' + errorMessage(err));
   }
 });
@@ -119,6 +125,8 @@ router.post('/classify-preview', upload.single('file'), async (req: Request, res
     });
     sendResult(res, result);
   } catch (err) {
+    console.error('[classify-preview] Error:', err);
+    if (err instanceof Error && err.stack) console.error(err.stack);
     sendStreamError(res, 'Classificatie mislukt: ' + errorMessage(err));
   }
 });
@@ -144,6 +152,10 @@ router.post('/pluxee-csv/preview', upload.single('file'), (req: Request, res: Re
       description: row.counterparty_name || row.description,
       amount: row.amount,
       counterparty_account: row.counterparty_account,
+      counterparty_name: row.counterparty_name,
+      bericht: row.description,
+      detail: null,
+      omschrijving: row.counterparty_name,
       ing_transaction_id: row.ing_transaction_id,
       duplicate: !!existing,
     };
@@ -180,6 +192,8 @@ router.post('/pluxee-csv', upload.single('file'), async (req: Request, res: Resp
     }, preClassifications);
     sendResult(res, result);
   } catch (err) {
+    console.error('[pluxee-csv import] Error:', err);
+    if (err instanceof Error && err.stack) console.error(err.stack);
     sendStreamError(res, 'Import mislukt: ' + errorMessage(err));
   }
 });

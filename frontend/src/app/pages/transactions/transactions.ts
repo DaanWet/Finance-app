@@ -127,6 +127,11 @@ export class Transactions implements OnInit {
   classifyOrganizations = signal<Organization[]>([]);
   isClassified = signal(false);
   classifyLoading = signal(false);
+  expandedPreviewIndex = signal<number | null>(null);
+
+  togglePreviewExpand(index: number) {
+    this.expandedPreviewIndex.set(this.expandedPreviewIndex() === index ? null : index);
+  }
 
   filteredPreviewRows = computed(() => {
     const rows = this.previewRows();

@@ -10,9 +10,12 @@ import {
   type ClassificationResult,
   type MatchCandidate,
   type UnreimbursedExpense,
+  type UnmatchedIncome,
 } from './aiAnalysis';
 import { fetchSplitwiseExpenses } from './splitwiseClient';
 import { loadAnalysisContext, selectFewShotExamples, formatFewShotForPrompt, resolveSplitwise, linkAndMatchTransactions } from './analysisHelpers';
+import { getUnmatchedIncomes } from '../queries/reimbursementLinks';
+import { linkAdvanceToRepayment } from './advanceMatching';
 import type { AnalysisContext } from './aiAnalysis';
 import type { ParsedIngRow } from './csvParser';
 import type { MatchableTx } from '../helpers/types';
@@ -407,7 +410,24 @@ export async function executeImport(
     }
   }
 
-  if (incomeTransactions.length > 0 && (batchExpenses.length > 0 || (unreimbursedExpenses && unreimbursedExpenses.length > 0))) {
+  // Load unmatched DB incomes for reverse cross-batch matching (when this batch has expenses)
+  const batchTxIds = Array.from(savedByIndex.values()).map(t => t.id);
+  const dbIncomesRaw = batchExpenses.length > 0
+    ? getUnmatchedIncomes(db, { excludeIds: batchTxIds })
+    : [];
+  const dbIncomes: UnmatchedIncome[] = dbIncomesRaw.map(i => ({
+    id: i.id,
+    date: i.date,
+    amount: i.amount,
+    description: i.description,
+    counterparty_name: i.counterparty_name,
+    remaining_amount: i.remaining_amount,
+  }));
+
+  const hasForwardMatching = incomeTransactions.length > 0 && (batchExpenses.length > 0 || (unreimbursedExpenses && unreimbursedExpenses.length > 0));
+  const hasReverseMatching = batchExpenses.length > 0 && dbIncomes.length > 0;
+
+  if (hasForwardMatching || hasReverseMatching) {
     onProgress('Terugbetalingen matchen...', 88);
     const dbExpenses: UnreimbursedExpense[] = (unreimbursedExpenses ?? []).map(e => ({
       id: e.id,
@@ -422,6 +442,7 @@ export async function executeImport(
       incomeTransactions,
       batchExpenses,
       dbExpenses,
+      dbIncomes,
       (tokens) => onProgress('Terugbetalingen matchen...', 88, tokens),
     );
 
@@ -435,42 +456,61 @@ export async function executeImport(
       };
     }
 
-    // Convert AI matches into aiResults-compatible format for linkAndMatchTransactions
     if (matches && matches.length > 0) {
-      if (!aiResults) aiResults = [];
+      const dbIncomeById = new Map(dbIncomes.map(i => [i.id, i]));
+
       for (const match of matches) {
-        if (match.confidence >= 75) {
-          // Find or create the AI result entry for this income
-          let existing = aiResults.find(r => r.index === match.income_index);
-          if (!existing) {
-            existing = {
-              index: match.income_index,
-              readable_name: '',
-              category_id: null,
-              organization_id: null,
-              type: 'income',
-              is_advance: false,
-              advance_repaid_by_index: null,
-              splitwise_expense_id: null,
-              notes: null,
-              matches_existing_id: null,
-              matches_existing_confidence: null,
-            };
-            aiResults.push(existing);
-          }
-          if (match.match_type === 'cross_batch') {
-            existing.matches_existing_id = match.expense_id;
-            existing.matches_existing_confidence = match.confidence;
-          } else {
-            // Within-batch: find the index of the expense in our saved transactions
-            const expenseEntry = [...savedByIndex.entries()].find(([, tx]) => tx.id === match.expense_id);
-            if (expenseEntry) {
-              existing.advance_repaid_by_index = expenseEntry[0];
-            }
+        if (match.confidence < 75) continue;
+
+        // Reverse cross-batch: expense in this batch ↔ income already in DB
+        if (match.match_type === 'reverse_cross_batch' && match.income_id != null && match.expense_index != null) {
+          const expenseTx = savedByIndex.get(match.expense_index);
+          const income = dbIncomeById.get(match.income_id);
+          if (!expenseTx || !income) continue;
+          const amount = Math.min(Math.abs(expenseTx.amount), income.remaining_amount);
+          linkAdvanceToRepayment(db, {
+            expenseId: expenseTx.id,
+            incomeId: income.id,
+            amount,
+            reimbursedAt: income.date,
+            note: `Automatisch gedetecteerd bij import (AI reverse-match, ${match.confidence}% confidence)`,
+          });
+          ai_matched++;
+          continue;
+        }
+
+        // Forward matching (within_batch / cross_batch) — handled via aiResults pipeline
+        if (!aiResults) aiResults = [];
+        let existing = aiResults.find(r => r.index === match.income_index);
+        if (!existing) {
+          existing = {
+            index: match.income_index,
+            readable_name: '',
+            category_id: null,
+            organization_id: null,
+            type: 'income',
+            is_advance: false,
+            advance_repaid_by_index: null,
+            splitwise_expense_id: null,
+            notes: null,
+            matches_existing_id: null,
+            matches_existing_confidence: null,
+          };
+          aiResults.push(existing);
+        }
+        if (match.match_type === 'cross_batch') {
+          existing.matches_existing_id = match.expense_id;
+          existing.matches_existing_confidence = match.confidence;
+          ai_matched++;
+        } else if (match.match_type === 'within_batch') {
+          // Within-batch: find the index of the expense in our saved transactions
+          const expenseEntry = [...savedByIndex.entries()].find(([, tx]) => tx.id === match.expense_id);
+          if (expenseEntry) {
+            existing.advance_repaid_by_index = expenseEntry[0];
+            ai_matched++;
           }
         }
       }
-      ai_matched = matches.filter(m => m.confidence >= 75).length;
     }
   }
 

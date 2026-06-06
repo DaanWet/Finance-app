@@ -124,6 +124,10 @@ export interface CsvPreviewRow {
   description: string;
   amount: number;
   counterparty_account: string | null;
+  counterparty_name: string | null;
+  bericht: string | null;
+  detail: string | null;
+  omschrijving: string | null;
   ing_transaction_id: string;
   duplicate: boolean;
 }

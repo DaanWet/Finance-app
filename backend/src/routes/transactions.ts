@@ -101,6 +101,8 @@ router.post('/bulk-reanalyze', async (req: Request, res: Response) => {
 
     sendResult(res, result);
   } catch (err) {
+    console.error('[bulk-reanalyze] Error:', err);
+    if (err instanceof Error && err.stack) console.error(err.stack);
     sendStreamError(res, 'Heranalyse mislukt: ' + errorMessage(err));
   }
 });
@@ -118,12 +120,17 @@ router.post('/:id/reanalyze', async (req: Request, res: Response) => {
   const tx = getTransactionById(db, id);
   if (!tx) return res.status(404).json({ error: 'Not found' });
 
-  const result = await reanalyzeSingle(db, tx);
-  if (!result) {
-    return res.status(500).json({ error: 'AI analyse mislukt' });
+  try {
+    const result = await reanalyzeSingle(db, tx);
+    if (!result) {
+      return res.status(500).json({ error: 'AI analyse mislukt' });
+    }
+    res.json(getTransactionById(db, id));
+  } catch (err) {
+    console.error('[single-reanalyze] Error:', err);
+    if (err instanceof Error && err.stack) console.error(err.stack);
+    res.status(500).json({ error: 'Heranalyse mislukt: ' + errorMessage(err) });
   }
-
-  res.json(getTransactionById(db, id));
 });
 
 router.put('/:id', (req: Request, res: Response) => {
