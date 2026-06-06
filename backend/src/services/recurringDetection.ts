@@ -89,11 +89,16 @@ function mostCommon<T>(items: T[]): T | null {
   return best;
 }
 
-export function detectCadence(sortedDates: string[]): Cadence | null {
-  if (sortedDates.length < MIN_OCCURRENCES) return null;
+/**
+ * Bepaal de dominante cadans uit een reeks datums ('YYYY-MM-DD').
+ * Sorteert defensief: callers hoeven niet reeds-gesorteerd aan te leveren.
+ */
+export function detectCadence(dates: string[]): Cadence | null {
+  if (dates.length < MIN_OCCURRENCES) return null;
+  const sorted = [...dates].sort();
   const gaps: number[] = [];
-  for (let i = 1; i < sortedDates.length; i++) {
-    gaps.push(daysBetween(sortedDates[i - 1]!, sortedDates[i]!));
+  for (let i = 1; i < sorted.length; i++) {
+    gaps.push(daysBetween(sorted[i - 1]!, sorted[i]!));
   }
   const med = median(gaps);
 

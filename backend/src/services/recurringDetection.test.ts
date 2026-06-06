@@ -15,8 +15,20 @@ describe('detectCadence', () => {
     expect(detectCadence(['2025-01-05', '2025-02-04', '2025-03-06', '2025-04-05'])).toBe('monthly');
   });
 
+  it('detects weekly cadence from ~7-day gaps', () => {
+    expect(detectCadence(['2025-01-01', '2025-01-08', '2025-01-15', '2025-01-22'])).toBe('weekly');
+  });
+
+  it('detects quarterly cadence from ~91-day gaps', () => {
+    expect(detectCadence(['2024-01-01', '2024-04-01', '2024-07-01', '2024-09-30'])).toBe('quarterly');
+  });
+
   it('detects yearly cadence from ~365-day gaps', () => {
     expect(detectCadence(['2023-03-01', '2024-03-02', '2025-03-01'])).toBe('yearly');
+  });
+
+  it('sorts defensively when dates are not pre-sorted', () => {
+    expect(detectCadence(['2025-03-06', '2025-01-05', '2025-04-05', '2025-02-04'])).toBe('monthly');
   });
 
   it('returns null for fewer than 3 dates', () => {
@@ -107,6 +119,18 @@ describe('buildSeriesFromTransactions', () => {
     expect(series).toHaveLength(1);
     expect(series[0]!.match_type).toBe('name');
     expect(series[0]!.match_value).toBe('my gym');
+  });
+
+  it('falls back to normalized description when account and name are missing', () => {
+    const txs = [
+      tx({ id: 1, date: '2025-01-05', amount: -8, counterparty_account: null, counterparty_name: null, description: 'Apple  iCloud' }),
+      tx({ id: 2, date: '2025-02-04', amount: -8, counterparty_account: null, counterparty_name: null, description: 'Apple  iCloud' }),
+      tx({ id: 3, date: '2025-03-06', amount: -8, counterparty_account: null, counterparty_name: null, description: 'Apple  iCloud' }),
+    ];
+    const series = buildSeriesFromTransactions(txs, TODAY);
+    expect(series).toHaveLength(1);
+    expect(series[0]!.match_type).toBe('description');
+    expect(series[0]!.match_value).toBe('apple icloud');
   });
 
   it('splits income and expense from the same counterparty into two series', () => {
