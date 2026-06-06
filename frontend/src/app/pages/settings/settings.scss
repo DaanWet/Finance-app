@@ -88,6 +88,20 @@
   }
 
   button { margin-left: auto; }
+
+  .row-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 0.25rem;
+
+    button { margin-left: 0; }
+  }
+
+  &.editing {
+    gap: 0.5rem;
+
+    .edit-name { flex: 1; min-width: 120px; }
+  }
 }
 
 .add-row {
@@ -98,4 +112,37 @@
   border-top: 1px solid var(--border);
 
   input { flex: 1; }
+}
+
+.icon-picker-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.emoji-btn {
+  width: 40px;
+  height: 36px;
+  font-size: 1.2rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.emoji-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.emoji-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  width: 22rem;
 }

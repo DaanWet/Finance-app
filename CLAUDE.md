@@ -260,6 +260,8 @@ ExpenseCandidateTransaction { id, description, amount, date, organization_name }
 
 ### settings.ts
 - Werkorganisatie selectie (work_organization_id), Splitwise API key koppelen, organizations/categories/rules CRUD
+- Categorieën zijn inline bewerkbaar (naam/kleur/icon) via `editingCatId` signal + `editCat` werkkopie
+- Icon-keuze (bij toevoegen én bewerken) via `emoji-picker-element` web-component in een popover, gestuurd door `iconPickerFor` signal ('new' | category-id | null); component gebruikt `CUSTOM_ELEMENTS_SCHEMA`
 
 ### splitwise.ts
 - Signals: expenses, balances, loading, configured, error

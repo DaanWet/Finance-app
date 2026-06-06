@@ -9,7 +9,12 @@
       "Bash(git diff --cached --no-stat)",
       "Bash(wc -l /home/daan/Finance-app/backend/src/routes/*.ts)",
       "Bash(wc -l /home/daan/Finance-app/backend/src/services/*.ts /home/daan/Finance-app/backend/src/helpers/*.ts /home/daan/Finance-app/backend/src/db.ts /home/daan/Finance-app/backend/src/schema.ts /home/daan/Finance-app/backend/src/index.ts)",
-      "Bash(wc -l /home/daan/Finance-app/backend/src/services/*.ts /home/daan/Finance-app/backend/src/queries/*.ts)"
+      "Bash(wc -l /home/daan/Finance-app/backend/src/services/*.ts /home/daan/Finance-app/backend/src/queries/*.ts)",
+      "Bash(npm run *)",
+      "Skill(simplify)",
+      "Skill(simplify:*)",
+      "Bash(git -C /home/daan/Finance-app diff HEAD -- frontend/src/app/pages/settings/)",
+      "Bash(npm list *)"
     ]
   }
 }

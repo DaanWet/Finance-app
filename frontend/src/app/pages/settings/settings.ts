@@ -1,15 +1,17 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { Organization, Category, ClassificationRule } from '../../models';
 import { typeBadge } from '../../utils/format';
+import 'emoji-picker-element';
 
 @Component({
   selector: 'app-settings',
   imports: [CommonModule, FormsModule],
   templateUrl: './settings.html',
   styleUrl: './settings.scss',
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
 })
 export class Settings implements OnInit {
   settings = signal<Record<string, string>>({});
@@ -27,6 +29,11 @@ export class Settings implements OnInit {
   newOrg = { name: '', color: '#6366f1' };
   newCat = { name: '', color: '#94a3b8', icon: '' };
   newRule = { pattern: '', type: 'reimbursable' as 'personal' | 'reimbursable' | 'income', organization_id: null as number | null, category_id: null as number | null };
+
+  editingCatId = signal<number | null>(null);
+  editCat = { name: '', color: '', icon: '' };
+  // 'new' = picker open for the add-row, number = open for that category id, null = closed
+  iconPickerFor = signal<'new' | number | null>(null);
 
   constructor(private api: ApiService) {}
 
@@ -90,6 +97,45 @@ export class Settings implements OnInit {
     this.api.deleteCategory(id).subscribe(() => {
       this.categories.update(cats => cats.filter(c => c.id !== id));
     });
+  }
+
+  startEditCat(cat: Category) {
+    this.editingCatId.set(cat.id);
+    this.editCat = { name: cat.name, color: cat.color, icon: cat.icon ?? '' };
+    this.iconPickerFor.set(null);
+  }
+
+  cancelEditCat() {
+    this.editingCatId.set(null);
+    this.iconPickerFor.set(null);
+  }
+
+  saveEditCat() {
+    const id = this.editingCatId();
+    if (id === null || !this.editCat.name) return;
+    this.api.updateCategory(id, { ...this.editCat, icon: this.editCat.icon || null }).subscribe(updated => {
+      this.categories.update(cats => cats.map(c => (c.id === id ? updated : c)));
+      this.cancelEditCat();
+    });
+  }
+
+  toggleIconPicker(target: 'new' | number) {
+    this.iconPickerFor.update(cur => (cur === target ? null : target));
+  }
+
+  closeIconPicker() {
+    this.iconPickerFor.set(null);
+  }
+
+  onEmojiPicked(event: Event) {
+    const emoji = (event as CustomEvent<{ unicode?: string }>).detail?.unicode ?? '';
+    const target = this.iconPickerFor();
+    if (target === 'new') {
+      this.newCat.icon = emoji;
+    } else if (target !== null) {
+      this.editCat.icon = emoji;
+    }
+    this.iconPickerFor.set(null);
   }
 
   addRule() {
