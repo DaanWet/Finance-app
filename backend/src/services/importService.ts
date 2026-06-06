@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { createTransaction, type CreateTransactionInput } from '../queries/transactions';
+import { scanRecurringSeries } from './recurringScan';
 import {
   analyzeTransactions,
   classifyTransactions,
@@ -520,6 +521,13 @@ export async function executeImport(
     note: 'Automatisch gedetecteerd bij import',
     onProgress,
   });
+
+  onProgress('Vaste lasten detecteren...', 95);
+  try {
+    await scanRecurringSeries(db);
+  } catch (err) {
+    console.error('[recurring scan] Fout na import:', err instanceof Error ? err.message : err);
+  }
 
   return {
     imported, skipped,
