@@ -110,6 +110,84 @@ export function detectCadence(sortedDates: string[]): Cadence | null {
   return best;
 }
 
-// buildSeriesFromTransactions volgt in Task 3 — hier nog niet geëxporteerd.
-// Interne helpers hierboven (round2, median, daysBetween, addDays, mostCommon) worden daar gebruikt.
-export const __internals = { round2, median, daysBetween, addDays, mostCommon };
+function matchKeyFor(tx: DetectionTx): { type: MatchType; value: string } | null {
+  if (tx.counterparty_account && tx.counterparty_account.trim()) {
+    return { type: 'account', value: tx.counterparty_account.trim() };
+  }
+  if (tx.counterparty_name && tx.counterparty_name.trim()) {
+    return { type: 'name', value: normalizeMatchValue(tx.counterparty_name) };
+  }
+  if (tx.description && tx.description.trim()) {
+    return { type: 'description', value: normalizeMatchValue(tx.description) };
+  }
+  return null;
+}
+
+export function buildSeriesFromTransactions(txs: DetectionTx[], today: string): DetectedSeries[] {
+  const groups = new Map<string, { match_type: MatchType; match_value: string; direction: Direction; members: DetectionTx[] }>();
+
+  for (const t of txs) {
+    const key = matchKeyFor(t);
+    if (!key) continue;
+    const direction: Direction = t.amount > 0 ? 'income' : 'expense';
+    const series_key = `${key.type}:${key.value}:${direction}`;
+    let group = groups.get(series_key);
+    if (!group) {
+      group = { match_type: key.type, match_value: key.value, direction, members: [] };
+      groups.set(series_key, group);
+    }
+    group.members.push(t);
+  }
+
+  const result: DetectedSeries[] = [];
+
+  for (const [series_key, group] of groups) {
+    if (group.members.length < MIN_OCCURRENCES) continue;
+
+    const sorted = [...group.members].sort((a, b) => a.date.localeCompare(b.date));
+    const dates = sorted.map(t => t.date);
+    const cadence = detectCadence(dates);
+    if (!cadence) continue;
+
+    const amounts = sorted.map(t => Math.abs(t.amount));
+    const typical = round2(median(amounts));
+    const minAmount = round2(Math.min(...amounts));
+    const maxAmount = round2(Math.max(...amounts));
+    const is_variable = typical > 0 && (maxAmount - minAmount) / typical > AMOUNT_VARIANCE_THRESHOLD;
+
+    const first_seen = dates[0]!;
+    const last_seen = dates[dates.length - 1]!;
+    const next_expected = addDays(last_seen, CADENCE_DAYS[cadence]);
+    const active = daysBetween(last_seen, today) <= CADENCE_DAYS[cadence] * INACTIVE_FACTOR;
+
+    const categoryIds = sorted.map(t => t.category_id).filter((c): c is number => c != null);
+    const category_id = mostCommon(categoryIds);
+
+    const descriptions = sorted.map(t => t.description).filter(Boolean);
+    const fallback_name = mostCommon(descriptions) ?? group.match_value;
+    const samples = [...new Set(descriptions)].slice(0, 3);
+
+    result.push({
+      series_key,
+      match_type: group.match_type,
+      match_value: group.match_value,
+      direction: group.direction,
+      cadence,
+      typical_amount: typical,
+      min_amount: minAmount,
+      max_amount: maxAmount,
+      is_variable,
+      category_id,
+      occurrence_count: sorted.length,
+      first_seen,
+      last_seen,
+      next_expected,
+      active,
+      member_ids: sorted.map(t => t.id),
+      fallback_name,
+      samples,
+    });
+  }
+
+  return result;
+}
