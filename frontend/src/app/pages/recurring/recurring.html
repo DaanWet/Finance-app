@@ -1,0 +1,134 @@
+<div class="recurring-page">
+  <header class="page-header">
+    <h1>Vaste lasten</h1>
+    <button class="btn-scan" (click)="scan()" [disabled]="scanning()">
+      {{ scanning() ? 'Bezig met scannen…' : '🔄 Scan opnieuw' }}
+    </button>
+  </header>
+
+  @if (summary(); as sum) {
+    <div class="summary-cards">
+      <div class="summary-card expense">
+        <span class="label">Vaste uitgaven / maand</span>
+        <span class="value">{{ formatEur(-sum.monthlyExpenseTotal) }}</span>
+      </div>
+      <div class="summary-card income">
+        <span class="label">Vaste inkomsten / maand</span>
+        <span class="value">{{ formatEur(sum.monthlyIncomeTotal) }}</span>
+      </div>
+      <div class="summary-card">
+        <span class="label">Actieve reeksen</span>
+        <span class="value">{{ sum.activeCount }}</span>
+      </div>
+    </div>
+  }
+
+  @if (loading()) {
+    <p class="muted">Laden…</p>
+  } @else {
+
+    @if (suggested().length > 0) {
+      <section>
+        <h2>Voorgesteld ({{ suggested().length }})</h2>
+        <ng-container [ngTemplateOutlet]="rows" [ngTemplateOutletContext]="{ list: suggested(), showActions: true }"></ng-container>
+      </section>
+    }
+
+    <section>
+      <h2>Bevestigd ({{ confirmedActive().length }})</h2>
+      @if (confirmedActive().length === 0) {
+        <p class="muted">Nog geen bevestigde vaste lasten.</p>
+      } @else {
+        <ng-container [ngTemplateOutlet]="rows" [ngTemplateOutletContext]="{ list: confirmedActive(), showActions: false }"></ng-container>
+      }
+    </section>
+
+    @if (inactive().length > 0) {
+      <section>
+        <h2 class="collapsible" (click)="showInactive.set(!showInactive())">
+          {{ showInactive() ? '▼' : '▶' }} Inactief / mogelijk opgezegd ({{ inactive().length }})
+        </h2>
+        @if (showInactive()) {
+          <ng-container [ngTemplateOutlet]="rows" [ngTemplateOutletContext]="{ list: inactive(), showActions: false }"></ng-container>
+        }
+      </section>
+    }
+
+    @if (ignored().length > 0) {
+      <section>
+        <h2 class="collapsible" (click)="showIgnored.set(!showIgnored())">
+          {{ showIgnored() ? '▼' : '▶' }} Genegeerd ({{ ignored().length }})
+        </h2>
+        @if (showIgnored()) {
+          <ng-container [ngTemplateOutlet]="rows" [ngTemplateOutletContext]="{ list: ignored(), showActions: false }"></ng-container>
+        }
+      </section>
+    }
+  }
+</div>
+
+<ng-template #rows let-list="list" let-showActions="showActions">
+  <div class="series-list">
+    @for (s of list; track s.id) {
+      <div class="series-row" [class.inactive]="s.active === 0">
+        <div class="main" (click)="toggleExpand(s)">
+          <span class="icon" [style.background]="s.category_color || '#94a3b8'">{{ s.category_icon || '🔁' }}</span>
+          <div class="info">
+            @if (editingNameId() === s.id) {
+              <div class="name-edit" (click)="$event.stopPropagation()">
+                <input [ngModel]="editName()" (ngModelChange)="editName.set($event)" (keyup.enter)="saveName(s)" />
+                <button (click)="saveName(s)" [disabled]="savingId() === s.id">✓</button>
+                <button (click)="cancelEditName()">✕</button>
+              </div>
+            } @else {
+              <span class="name">
+                {{ displayName(s) }}
+                <button class="edit-name" (click)="$event.stopPropagation(); startEditName(s)" title="Naam bewerken">✏️</button>
+              </span>
+            }
+            <span class="meta">
+              {{ cadenceLabel(s.cadence) }} · {{ s.occurrence_count }}× · laatst {{ formatDate(s.last_seen) }}
+              @if (s.next_expected && s.active === 1) { · volgende ± {{ formatDate(s.next_expected) }} }
+            </span>
+          </div>
+          <div class="amounts">
+            <span class="typical">
+              {{ formatEur(s.direction === 'income' ? s.typical_amount : -s.typical_amount) }}
+              @if (s.is_variable) { <span class="badge variable">variabel</span> }
+            </span>
+            <span class="monthly">{{ formatEur(s.direction === 'income' ? monthlyAmount(s) : -monthlyAmount(s)) }}/mnd</span>
+          </div>
+        </div>
+
+        <div class="actions">
+          @if (showActions) {
+            <button class="btn-confirm" (click)="setStatus(s, 'confirmed')" [disabled]="savingId() === s.id">Bevestigen</button>
+            <button class="btn-ignore" (click)="setStatus(s, 'ignored')" [disabled]="savingId() === s.id">Negeren</button>
+          } @else if (s.status === 'ignored') {
+            <button class="btn-restore" (click)="setStatus(s, 'suggested')" [disabled]="savingId() === s.id">Terugzetten</button>
+          } @else if (s.status === 'confirmed') {
+            <button class="btn-ignore" (click)="setStatus(s, 'ignored')" [disabled]="savingId() === s.id">Negeren</button>
+          }
+        </div>
+
+        @if (expandedId() === s.id) {
+          <div class="tx-list">
+            @if (expandingTx()) {
+              <p class="muted">Transacties laden…</p>
+            } @else {
+              @for (tx of expandedTx(); track tx.id) {
+                <div class="tx-item">
+                  <span>{{ formatDate(tx.date) }}</span>
+                  <span class="tx-desc">{{ tx.description }}</span>
+                  <span>{{ formatEur(tx.amount) }}</span>
+                </div>
+              } @empty {
+                <p class="muted">Geen transacties gevonden.</p>
+              }
+            }
+          </div>
+        }
+      </div>
+    }
+  </div>
+</ng-template>

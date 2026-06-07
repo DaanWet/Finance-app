@@ -265,11 +265,40 @@ function seedInitialData(db: Database.Database): void {
   }
 }
 
+function createRecurringSeriesTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recurring_series (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      series_key       TEXT NOT NULL UNIQUE,
+      match_type       TEXT NOT NULL,
+      match_value      TEXT NOT NULL,
+      direction        TEXT NOT NULL CHECK(direction IN ('expense', 'income')),
+      name             TEXT,
+      custom_name      TEXT,
+      cadence          TEXT NOT NULL CHECK(cadence IN ('weekly', 'monthly', 'quarterly', 'yearly')),
+      typical_amount   REAL NOT NULL,
+      min_amount       REAL,
+      max_amount       REAL,
+      is_variable      INTEGER NOT NULL DEFAULT 0,
+      category_id      INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+      occurrence_count INTEGER NOT NULL,
+      first_seen       TEXT NOT NULL,
+      last_seen        TEXT NOT NULL,
+      next_expected    TEXT,
+      status           TEXT NOT NULL DEFAULT 'suggested' CHECK(status IN ('suggested', 'confirmed', 'ignored')),
+      active           INTEGER NOT NULL DEFAULT 1,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+}
+
 export function runMigrations(db: Database.Database): void {
   createInitialSchema(db);
   addMissingColumns(db);
   migrateSavingsType(db);
   createLinkTables(db);
+  createRecurringSeriesTable(db);
   migrateRemoveWorkExpense(db);
   fixSplitwiseIds(db);
   createAnalysisIndexes(db);

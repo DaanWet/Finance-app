@@ -205,3 +205,40 @@ export interface StreamProgress<T = unknown> {
   error?: boolean;
   tokens?: TokenUsage;
 }
+
+export interface RecurringSeries {
+  id: number;
+  series_key: string;
+  match_type: 'account' | 'name' | 'description';
+  match_value: string;
+  direction: 'expense' | 'income';
+  name: string | null;
+  custom_name: string | null;
+  cadence: 'weekly' | 'monthly' | 'quarterly' | 'yearly';
+  typical_amount: number;
+  min_amount: number | null;
+  max_amount: number | null;
+  is_variable: number;
+  category_id: number | null;
+  occurrence_count: number;
+  first_seen: string;
+  last_seen: string;
+  next_expected: string | null;
+  status: 'suggested' | 'confirmed' | 'ignored';
+  active: number;
+  category_name?: string;
+  category_color?: string;
+  category_icon?: string;
+}
+
+export interface RecurringSummary {
+  monthlyExpenseTotal: number;
+  monthlyIncomeTotal: number;
+  activeCount: number;
+  suggestedCount: number;
+}
+
+export interface RecurringListResult {
+  series: RecurringSeries[];
+  summary: RecurringSummary;
+}

@@ -10,13 +10,13 @@
 ## File structure
 ```
 backend/src/
-  index.ts          — Express entry, mounts 10 routers
+  index.ts          — Express entry, mounts 11 routers
   db.ts             — SQLite singleton, WAL-mode, foreign keys ON
   schema.ts         — DB schema + migrations + seed data
   routes/           — import, transactions, reimbursements, dashboard,
                       organizations, categories, settings, splitwise,
-                      classificationRules, expenses
-  queries/          — transactions.ts, reimbursements.ts, reimbursementLinks.ts, dashboard.ts
+                      classificationRules, expenses, recurring
+  queries/          — transactions.ts, reimbursements.ts, reimbursementLinks.ts, dashboard.ts, recurring.ts
   services/
     aiAnalysis.ts           — 2 AI calls: classifyTransactions() + matchReimbursements(), legacy analyzeTransactions()
     merchantProfiles.ts     — Merchant profiel queries uit historiek (counterparty → categorie/type distributie)
@@ -31,6 +31,8 @@ backend/src/
     advanceMatching.ts      — Voorschot-detectie en linking
     importHelpers.ts        — NMBS ticket matching + Splitwise expenses fetch + Gmail ticket matching
     analysisHelpers.ts  — Gedeelde AI-analyse helpers (loadAnalysisContext, resolveSplitwise, applyAiResult, TransactionClassification)
+    recurringDetection.ts   — Pure recurring-detectie motor (groepering per tegenpartij+richting, cadansdetectie; geen DB/AI)
+    recurringScan.ts        — Recurring scan-orchestratie: motor + AI-naamgeving (nieuwe reeksen) + upsert
   helpers/
     settings.ts     — getSetting(), upsertSetting() voor settings tabel
     constants.ts    — SETTING_KEYS, TRANSACTION_TYPES, note-constanten
@@ -42,7 +44,7 @@ frontend/src/app/
   services/api.service.ts — alle HTTP-methoden
   utils/format.ts   — formatEur(), formatDate(), typeBadge() gedeelde helpers
   pages/            — dashboard, transactions, reimbursements, settings,
-                      splitwise, expenses
+                      splitwise, expenses, recurring
 ```
 
 ## DB schema (kern)
@@ -53,6 +55,7 @@ frontend/src/app/
 - **settings**: key-value store (splitwise_api_key, splitwise_user_id, work_organization_id, google_refresh_token, google_access_token)
 - **reimbursement_links**: id, income_transaction_id (FK → transactions), expense_transaction_id (FK → transactions), amount, created_at; UNIQUE(income_transaction_id, expense_transaction_id)
 - **classification_rules**: pattern, type, organization_id, category_id
+- **recurring_series**: id, series_key (UNIQUE = `match_type:match_value:direction`), match_type (account/name/description), match_value, direction (expense/income), name (AI/fallback), custom_name (user override), cadence (weekly/monthly/quarterly/yearly), typical_amount, min_amount, max_amount, is_variable, category_id (FK → categories), occurrence_count, first_seen, last_seen, next_expected, status (suggested/confirmed/ignored), active (0=mogelijk opgezegd), created_at, updated_at
 
 ## CSV import (ING)
 - Separator: `;` (of `\t`, `,`)
@@ -126,6 +129,20 @@ frontend/src/app/
   - Per-rij "Schrijf af" knop opent modal met note + persoonlijk-deel input (€0 / Volledig knoppen + custom waarde)
   - Aparte (collapsed) "Afgeschreven" sectie onderaan reimbursements-pagina, toont notitie + persoonlijk deel per rij
 
+## Recurring detectie (Vaste lasten)
+- **Doel**: terugkerende uitgaven én inkomsten (abonnementen, vaste lasten, loon) automatisch detecteren; gebruiker bevestigt/negeert voorstellen
+- **Detectiemotor** (`services/recurringDetection.ts`, puur/unit-getest): groepeert transacties (type personal/reimbursable/income/savings) per `series_key = match_type:match_value:direction`
+  - `match_type`: `account` (counterparty_account, trimmed) → `name` (genormaliseerde counterparty_name) → `description` (genormaliseerde omschrijving) als fallback
+  - `direction`: expense (amount<0) of income (amount>0) — splitst zo dezelfde tegenpartij
+  - **Cadans** (`detectCadence`, sorteert defensief): mediaan dag-gat → bucket weekly(7±2)/monthly(30±4)/quarterly(91±10)/yearly(365±20), vereist ≥60% consistentie
+  - Drempels (constanten): `MIN_OCCURRENCES=3`, `AMOUNT_VARIANCE_THRESHOLD=0.25` (→ `is_variable`), `CADENCE_CONSISTENCY=0.6`, `INACTIVE_FACTOR=1.5`
+  - Stats: typical_amount (mediaan |amount|), min/max, next_expected (last_seen + cadans), `active` = last_seen ≤ cadans×1.5 geleden, meest voorkomende categorie, `MONTHLY_FACTOR` voor maandnormalisatie
+- **Hybride AI-naamgeving** (`services/recurringScan.ts`): enkel voor NIEUWE reeksen één batch `query()`-call (hergebruikt `callQuery`/`parseJsonResponse` uit aiAnalysis); faalt veilig → fallback = meest voorkomende description
+- **Scan** (`scanRecurringSeries(db, opts?)`): motor → AI-naam nieuwe reeksen → upsert in één transactie. Behoudt `status`/`custom_name`/gecachte naam bij herscan; verwijdert enkel verdwenen `suggested` reeksen (`deleteStaleSuggested`). `namer` injecteerbaar voor tests
+- **Auto-scan**: draait aan het einde van `executeImport` (try/catch, mag import nooit doen falen)
+- **Lidmaatschap**: niet opgeslagen; `getSeriesMemberTransactions` herberekent via de motor (altijd consistent)
+- **Frontend**: pagina `recurring` ("Vaste lasten") met secties Voorgesteld/Bevestigd/Inactief/Genegeerd (partitie zonder overlap) + dashboard-kaart
+
 ## Splitwise
 - API key + user_id in settings tabel
 - Expenses opgehaald tijdens import voor AI-context
@@ -197,6 +214,15 @@ frontend/src/app/
 | GET | `/export/excel` | Excel onkostennota download |
 | GET | `/export/pdf` | PDF met alle bonnen |
 
+### Recurring (`/api/recurring`)
+| Method | Endpoint | Functie |
+|--------|----------|---------|
+| GET | `/` | Lijst reeksen + `summary` |
+| GET | `/summary` | Enkel summary (dashboard-kaart) |
+| POST | `/scan` | Detectie draaien + upsert, geeft `{ created, updated, total }` |
+| GET | `/:id/transactions` | Transacties van een reeks (404 bij onbekende id) |
+| PUT | `/:id` | `status` (bevestig/negeer) en/of `custom_name` aanpassen |
+
 ### Overige
 - Organizations/Categories/ClassificationRules: standaard CRUD (GET, POST, PUT /:id, DELETE /:id)
 - Settings: `GET /api/settings`, `PUT /api/settings/:key`
@@ -232,6 +258,12 @@ GmailFetchResult { fetched, linked, unmatched: string[] }
 ReimbursementLink { id, income_transaction_id, expense_transaction_id, amount, created_at, description?, transaction_amount?, date?, organization_name? }
 IncomeCandidateTransaction { id, description, amount, date, counterparty_name, linked_total }
 ExpenseCandidateTransaction { id, description, amount, date, organization_name }
+RecurringSeries { id, series_key, match_type, match_value, direction, name, custom_name,
+  cadence, typical_amount, min_amount, max_amount, is_variable, category_id,
+  occurrence_count, first_seen, last_seen, next_expected, status, active,
+  // joined: category_name?, category_color?, category_icon? }
+RecurringSummary { monthlyExpenseTotal, monthlyIncomeTotal, activeCount, suggestedCount }
+RecurringListResult { series: RecurringSeries[], summary: RecurringSummary }
 ```
 
 ## Frontend pagina's (signals-gebaseerd)
@@ -265,3 +297,9 @@ ExpenseCandidateTransaction { id, description, amount, date, organization_name }
 
 ### splitwise.ts
 - Signals: expenses, balances, loading, configured, error
+
+### recurring.ts
+- Signals: series, summary, loading, scanning, savingId, editingNameId, editName, expandedId, expandedTx, expandingTx, showInactive, showIgnored
+- Computed (partitie zonder overlap): suggested, confirmedActive (confirmed+active), inactive (confirmed+inactief), ignored
+- "Scan opnieuw" → POST /scan; bevestigen/negeren/terugzetten → PUT /:id (status); inline naam bewerken → PUT /:id (custom_name); rij uitklappen → GET /:id/transactions
+- Dashboard toont "Vaste lasten / maand"-kaart (recurring summary signal) die naar /recurring linkt

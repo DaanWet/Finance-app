@@ -14,6 +14,7 @@ export class App {
     { path: '/reimbursements', label: 'Terugbetalingen', icon: '↩️' },
     { path: '/splitwise', label: 'Splitwise', icon: '🤝' },
     { path: '/expenses', label: 'Onkosten', icon: '🧾' },
+    { path: '/recurring', label: 'Vaste lasten', icon: '🔁' },
     { path: '/settings', label: 'Instellingen', icon: '⚙️' },
   ];
 }

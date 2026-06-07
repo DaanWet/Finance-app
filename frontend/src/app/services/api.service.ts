@@ -8,7 +8,8 @@ import {
   ClassifiedPreviewRow, ClassifyPreviewResult,
   ExpenseReceipt, ExpensesPageData, GmailFetchResult,
   ReimbursementLink, IncomeCandidateTransaction, ExpenseCandidateTransaction,
-  StreamProgress
+  StreamProgress,
+  RecurringSeries, RecurringSummary, RecurringListResult,
 } from '../models';
 
 const BASE = 'http://localhost:3000/api';
@@ -264,6 +265,27 @@ export class ApiService {
 
   deleteClassificationRule(id: number): Observable<void> {
     return this.http.delete<void>(`${BASE}/classification-rules/${id}`);
+  }
+
+  // Recurring (vaste lasten)
+  getRecurring(): Observable<RecurringListResult> {
+    return this.http.get<RecurringListResult>(`${BASE}/recurring`);
+  }
+
+  getRecurringSummary(): Observable<RecurringSummary> {
+    return this.http.get<RecurringSummary>(`${BASE}/recurring/summary`);
+  }
+
+  scanRecurring(): Observable<{ created: number; updated: number; total: number }> {
+    return this.http.post<{ created: number; updated: number; total: number }>(`${BASE}/recurring/scan`, {});
+  }
+
+  updateRecurring(id: number, data: { status?: RecurringSeries['status']; custom_name?: string | null }): Observable<RecurringSeries> {
+    return this.http.put<RecurringSeries>(`${BASE}/recurring/${id}`, data);
+  }
+
+  getRecurringTransactions(id: number): Observable<Transaction[]> {
+    return this.http.get<Transaction[]>(`${BASE}/recurring/${id}/transactions`);
   }
 
   private streamPost<T>(url: string, body: FormData | Record<string, unknown>): Observable<StreamProgress<T>> {

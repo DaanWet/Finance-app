@@ -62,6 +62,13 @@
           <div class="card-sub text-muted">Deze periode opzijgezet</div>
         </div>
       }
+      @if (recurring(); as rec) {
+        <div class="card summary-card clickable" routerLink="/recurring">
+          <div class="card-label">Vaste lasten / maand</div>
+          <div class="card-amount amount-negative">{{ formatEur(-rec.monthlyExpenseTotal) }}</div>
+          <div class="card-sub text-muted">{{ rec.activeCount }} actieve reeks(en)</div>
+        </div>
+      }
     </div>
 
     <!-- Charts row -->
