@@ -76,16 +76,26 @@ export class Recurring implements OnInit {
     return s.typical_amount * (MONTHLY_FACTOR[s.cadence] ?? 1);
   }
 
-  setStatus(s: RecurringSeries, status: 'suggested' | 'confirmed' | 'ignored') {
-    this.savingId.set(s.id);
-    this.api.updateRecurring(s.id, { status }).subscribe({
+  /** Gedeelde optimistische update: patch de reeks in de lijst, met optionele vervolgactie. */
+  private updateOne(
+    id: number,
+    data: { status?: RecurringSeries['status']; custom_name?: string | null },
+    onSuccess?: () => void,
+  ) {
+    this.savingId.set(id);
+    this.api.updateRecurring(id, data).subscribe({
       next: (updated) => {
-        this.series.update(list => list.map(x => x.id === s.id ? updated : x));
+        this.series.update(list => list.map(x => x.id === id ? updated : x));
         this.savingId.set(null);
-        this.api.getRecurringSummary().subscribe(sum => this.summary.set(sum));
+        onSuccess?.();
       },
       error: () => this.savingId.set(null),
     });
+  }
+
+  setStatus(s: RecurringSeries, status: 'suggested' | 'confirmed' | 'ignored') {
+    this.updateOne(s.id, { status }, () =>
+      this.api.getRecurringSummary().subscribe(sum => this.summary.set(sum)));
   }
 
   startEditName(s: RecurringSeries) {
@@ -95,15 +105,7 @@ export class Recurring implements OnInit {
 
   saveName(s: RecurringSeries) {
     const name = this.editName().trim();
-    this.savingId.set(s.id);
-    this.api.updateRecurring(s.id, { custom_name: name || null }).subscribe({
-      next: (updated) => {
-        this.series.update(list => list.map(x => x.id === s.id ? updated : x));
-        this.editingNameId.set(null);
-        this.savingId.set(null);
-      },
-      error: () => this.savingId.set(null),
-    });
+    this.updateOne(s.id, { custom_name: name || null }, () => this.editingNameId.set(null));
   }
 
   cancelEditName() { this.editingNameId.set(null); }

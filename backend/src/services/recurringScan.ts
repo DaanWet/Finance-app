@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { buildSeriesFromTransactions, DetectedSeries } from './recurringDetection';
-import { getDetectionTransactions, upsertSeries, deleteStaleSuggested } from '../queries/recurring';
+import { getDetectionTransactions, getExistingSeriesKeys, upsertSeries, deleteStaleSuggested } from '../queries/recurring';
 import { callQuery, parseJsonResponse } from './aiAnalysis';
 
 export type SeriesNamer = (series: DetectedSeries[]) => Promise<Map<string, string>>;
@@ -61,9 +61,7 @@ export async function scanRecurringSeries(
   const txs = getDetectionTransactions(db);
   const detected = buildSeriesFromTransactions(txs, today);
 
-  const existingKeys = new Set(
-    (db.prepare('SELECT series_key FROM recurring_series').all() as { series_key: string }[]).map(r => r.series_key)
-  );
+  const existingKeys = getExistingSeriesKeys(db);
   const newSeries = detected.filter(s => !existingKeys.has(s.series_key));
 
   let names = new Map<string, string>();

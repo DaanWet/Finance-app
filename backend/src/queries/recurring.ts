@@ -1,17 +1,6 @@
 import Database from 'better-sqlite3';
-import { DetectedSeries, MONTHLY_FACTOR, Cadence, buildSeriesFromTransactions } from '../services/recurringDetection';
+import { DetectedSeries, DetectionTx, MONTHLY_FACTOR, Cadence, buildSeriesFromTransactions, round2 } from '../services/recurringDetection';
 import { Transaction, getTransactionsByIds } from './transactions';
-
-export interface DetectionTxRow {
-  id: number;
-  date: string;
-  amount: number;
-  type: string;
-  description: string;
-  counterparty_account: string | null;
-  counterparty_name: string | null;
-  category_id: number | null;
-}
 
 export interface RecurringSeriesRow {
   id: number;
@@ -47,18 +36,20 @@ export interface RecurringSummary {
   suggestedCount: number;
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
 /** Alle transacties die in aanmerking komen voor recurring-detectie. */
-export function getDetectionTransactions(db: Database.Database): DetectionTxRow[] {
+export function getDetectionTransactions(db: Database.Database): DetectionTx[] {
   return db.prepare(`
     SELECT id, date, amount, type, description, counterparty_account, counterparty_name, category_id
     FROM transactions
     WHERE type IN ('personal', 'reimbursable', 'income', 'savings')
     ORDER BY date ASC
-  `).all() as DetectionTxRow[];
+  `).all() as DetectionTx[];
+}
+
+/** Series-keys die al in de DB bestaan (om nieuwe reeksen te herkennen). */
+export function getExistingSeriesKeys(db: Database.Database): Set<string> {
+  const rows = db.prepare('SELECT series_key FROM recurring_series').all() as { series_key: string }[];
+  return new Set(rows.map(r => r.series_key));
 }
 
 /**
@@ -110,10 +101,8 @@ export function deleteStaleSuggested(db: Database.Database, keepKeys: string[]):
   const keep = new Set(keepKeys);
   const toDelete = all.filter(r => !keep.has(r.series_key)).map(r => r.series_key);
   if (toDelete.length === 0) return 0;
-  const del = db.prepare('DELETE FROM recurring_series WHERE series_key = ?');
-  let n = 0;
-  for (const key of toDelete) n += del.run(key).changes;
-  return n;
+  const placeholders = toDelete.map(() => '?').join(',');
+  return db.prepare(`DELETE FROM recurring_series WHERE series_key IN (${placeholders})`).run(...toDelete).changes;
 }
 
 const SERIES_SELECT = `

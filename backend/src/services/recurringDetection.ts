@@ -57,7 +57,7 @@ export function normalizeMatchValue(s: string): string {
   return s.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function round2(n: number): number {
+export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
