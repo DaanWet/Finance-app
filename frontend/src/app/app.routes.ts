@@ -7,5 +7,6 @@ export const routes: Routes = [
   { path: 'reimbursements', loadComponent: () => import('./pages/reimbursements/reimbursements').then(m => m.Reimbursements) },
   { path: 'splitwise', loadComponent: () => import('./pages/splitwise/splitwise').then(m => m.Splitwise) },
   { path: 'expenses', loadComponent: () => import('./pages/expenses/expenses').then(m => m.Expenses) },
+  { path: 'recurring', loadComponent: () => import('./pages/recurring/recurring').then(m => m.Recurring) },
   { path: 'settings', loadComponent: () => import('./pages/settings/settings').then(m => m.Settings) },
 ];
