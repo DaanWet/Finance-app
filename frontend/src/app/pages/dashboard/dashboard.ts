@@ -2,7 +2,7 @@ import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
-import { DashboardSummary, SplitwiseBalance } from '../../models';
+import { DashboardSummary, SplitwiseBalance, RecurringSummary } from '../../models';
 import { formatEur } from '../../utils/format';
 
 @Component({
@@ -17,6 +17,7 @@ export class Dashboard implements OnInit {
   splitwiseTotal = signal(0);
   loading = signal(true);
   error = signal('');
+  recurring = signal<RecurringSummary | null>(null);
 
   period = signal<'month' | 'last_month' | 'year' | 'last_year' | 'custom'>('last_year');
   customStart = signal('');
@@ -52,6 +53,11 @@ export class Dashboard implements OnInit {
       error: () => {
         /* Splitwise niet geconfigureerd - negeer */
       },
+    });
+
+    this.api.getRecurringSummary().subscribe({
+      next: (sum) => this.recurring.set(sum),
+      error: () => { /* recurring nog niet gescand — negeer */ },
     });
   }
 
