@@ -113,14 +113,18 @@
 
         @if (expandedId() === s.id) {
           <div class="tx-list">
-            @for (tx of expandedTx(); track tx.id) {
-              <div class="tx-item">
-                <span>{{ formatDate(tx.date) }}</span>
-                <span class="tx-desc">{{ tx.description }}</span>
-                <span>{{ formatEur(tx.amount) }}</span>
-              </div>
-            } @empty {
+            @if (expandingTx()) {
               <p class="muted">Transacties laden…</p>
+            } @else {
+              @for (tx of expandedTx(); track tx.id) {
+                <div class="tx-item">
+                  <span>{{ formatDate(tx.date) }}</span>
+                  <span class="tx-desc">{{ tx.description }}</span>
+                  <span>{{ formatEur(tx.amount) }}</span>
+                </div>
+              } @empty {
+                <p class="muted">Geen transacties gevonden.</p>
+              }
             }
           </div>
         }

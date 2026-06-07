@@ -28,12 +28,15 @@ export class Recurring implements OnInit {
   editName = signal('');
   expandedId = signal<number | null>(null);
   expandedTx = signal<Transaction[]>([]);
+  expandingTx = signal(false);
   showInactive = signal(false);
   showIgnored = signal(false);
 
+  // Partitie zonder overlap: suggested → Voorgesteld; confirmed+actief → Bevestigd;
+  // confirmed+inactief → Inactief; ignored → Genegeerd.
   suggested = computed(() => this.series().filter(s => s.status === 'suggested'));
   confirmedActive = computed(() => this.series().filter(s => s.status === 'confirmed' && s.active === 1));
-  inactive = computed(() => this.series().filter(s => s.status !== 'ignored' && s.active === 0));
+  inactive = computed(() => this.series().filter(s => s.status === 'confirmed' && s.active === 0));
   ignored = computed(() => this.series().filter(s => s.status === 'ignored'));
 
   formatEur = formatEur;
@@ -109,6 +112,10 @@ export class Recurring implements OnInit {
     if (this.expandedId() === s.id) { this.expandedId.set(null); return; }
     this.expandedId.set(s.id);
     this.expandedTx.set([]);
-    this.api.getRecurringTransactions(s.id).subscribe(txs => this.expandedTx.set(txs));
+    this.expandingTx.set(true);
+    this.api.getRecurringTransactions(s.id).subscribe({
+      next: (txs) => { this.expandedTx.set(txs); this.expandingTx.set(false); },
+      error: () => this.expandingTx.set(false),
+    });
   }
 }

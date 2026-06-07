@@ -280,7 +280,7 @@ export class ApiService {
     return this.http.post<{ created: number; updated: number; total: number }>(`${BASE}/recurring/scan`, {});
   }
 
-  updateRecurring(id: number, data: { status?: string; custom_name?: string | null }): Observable<RecurringSeries> {
+  updateRecurring(id: number, data: { status?: RecurringSeries['status']; custom_name?: string | null }): Observable<RecurringSeries> {
     return this.http.put<RecurringSeries>(`${BASE}/recurring/${id}`, data);
   }
 
